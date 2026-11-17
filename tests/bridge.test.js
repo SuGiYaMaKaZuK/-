@@ -63,6 +63,7 @@ function setup(options = {}) {
       }
     }
   };
+  if (options.nativeDialog) window.cep = { fs: { showOpenDialog: options.nativeDialog } };
   if (!options.globalRequire) window.cep_node = { require: nodeRequire };
   // CEP mixed context exposes both window and Node's module/require globals.
   const context = vm.createContext({ window, module: { exports: {} }, require: nodeRequire, AbortController, console });
@@ -96,6 +97,32 @@ test('browser-only preview can load bundled samples without any CEP or Node glob
   assert.equal(window.CardModel.validate(project).length, 0);
   assert.equal(window.CardBridge.importRendered, undefined);
   assert.equal(window.CardBridge.openOutputFolder, undefined);
+});
+
+test('CEP native media picker opens directly without loading an ExtendScript dialog', async () => {
+  for (const [filename,type] of [['紹介画像.PNG','image'],['ボス動画.MP4','video']]) {
+    const filenamePath=path.resolve('/tmp',filename);
+    const env=setup({nativeDialog:(multiple,directory,title,initial,extensions)=>{
+      assert.equal(multiple,false); assert.equal(directory,false);
+      assert.ok(title.includes('画像')); assert.equal(initial,'');
+      assert.ok(extensions.includes('png') && extensions.includes('mp4'));
+      assert.ok(extensions.every(ext=>!ext.startsWith('.')));
+      return {err:0,data:[filenamePath]};
+    }});
+    const media=await env.api.pickMedia();
+    assert.equal(media.path,filenamePath); assert.equal(media.type,type);
+    assert.equal(url.fileURLToPath(media.url),filenamePath);
+    assert.equal(env.scripts.length,0);
+  }
+});
+
+test('native dialog cancellation stays cancelled and picker failures are visible', async () => {
+  const env=setup({nativeDialog:()=>({err:0,data:[]})});
+  assert.equal(await env.api.pickMedia(),null);
+  assert.equal(env.scripts.length,0);
+  const broken=setup({nativeDialog:()=>({err:2,data:[]})});
+  await assert.rejects(broken.api.pickMedia(),/CEPエラー 2/);
+  assert.equal(broken.scripts.length,0);
 });
 
 test('CEP mixed context loads the model and file URI roots without corrupting Japanese, quotes or percent names', async () => {
