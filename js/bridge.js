@@ -64,7 +64,17 @@
     throw new Error('FFmpegが見つかりません。install-windows.ps1を実行し直すか、binフォルダーにffmpeg.exeを置いてPremiere Proを再起動してください。');
   }
   api.pickMedia = async function () {
-    var result = await host('pickMedia');
+    var result;
+    var nativeFS = window.cep && window.cep.fs;
+    if (nativeFS && typeof nativeFS.showOpenDialog === 'function') {
+      // Use CEP's native picker directly. Premiere's ExtendScript File dialog
+      // is not needed for selecting panel media.
+      var selection = nativeFS.showOpenDialog(false, false, '画像または動画を選択', '', ['png','jpg','jpeg','webp','bmp','tif','tiff','mp4','mov','m4v','avi','mkv','webm','mts','m2ts','mxf']);
+      if (!selection || selection.err !== 0 || !Array.isArray(selection.data)) throw new Error('ファイル選択画面を開けませんでした。パネルを閉じて開き直してください。' + (selection && typeof selection.err === 'number' ? '（CEPエラー ' + selection.err + '）' : ''));
+      result = selection.data[0] || null;
+    } else {
+      result = await host('pickMedia');
+    }
     if (!result) return null;
     return { path: result, type: classify(result), url: nodeURL.pathToFileURL(result).href, name: path.basename(result) };
   };
