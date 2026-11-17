@@ -1,9 +1,13 @@
 {
   "name": "card-reveal-premiere",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Premiere Pro 2026 Windows card reveal and angled three-panel slide CEP panel",
-  "scripts": {"test": "node --test tests/*.test.js"},
-  "engines": {"node": ">=17"},
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  },
+  "engines": {
+    "node": ">=17"
+  },
   "license": "MIT"
 }
