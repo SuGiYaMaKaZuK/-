@@ -1,0 +1,322 @@
+'use strict';
+
+// This module is loaded only by CEP's Node context. Media paths are always
+// separate spawn arguments: no shell, command concatenation, or filter escaping.
+const fs = require('fs');
+const path = require('path');
+const childProcess = require('child_process');
+const model = require('./model');
+
+function activeCards(project) { return project.mode === 'trapezoid' ? project.cards.slice(0, 3) : project.cards; }
+
+function failure(code, message, details) {
+  const error = new Error(message);
+  error.code = code;
+  if (details) error.technicalDetails = String(details).slice(-6000);
+  return error;
+}
+
+function cardLabel(card, index) {
+  const name = typeof card.name === 'string' ? card.name.replace(/[\r\n]/g, ' ').trim().slice(0, 100) : '';
+  return 'カード' + (index + 1) + (name ? '「' + name + '」' : '');
+}
+
+function cancelled() { return failure('CANCELLED', '書き出しを中止しました。'); }
+
+function launchFailure(error) {
+  if (error.code === 'ENOENT') return failure('FFMPEG_NOT_FOUND', 'FFmpegが見つかりません。FFmpegの場所を設定するか、インストールし直してください。', error.message);
+  if (error.code === 'EACCES' || error.code === 'EPERM') return failure('FFMPEG_PERMISSION', 'FFmpegを起動する権限がありません。FFmpegの場所とWindowsのセキュリティ設定を確認してください。', error.message);
+  return failure('FFMPEG_START_FAILED', 'FFmpegを起動できません。FFmpegの場所を確認して、もう一度お試しください。', error.message);
+}
+
+function renderFailure(project, details, outputPath, sourceOverride) {
+  const inputs = activeCards(project).map(function (card, index) { return { card: card, index: index }; }).filter(function (item) { return item.card.mediaPath; });
+  let source = sourceOverride || inputs.find(function (item) { return details.indexOf(item.card.mediaPath) !== -1; });
+  if (!source) {
+    const match = /(?:stream\s+#|input\s+#|\[in#)(\d+)/i.exec(details);
+    if (match) source = inputs[Number(match[1])];
+  }
+  const label = source ? cardLabel(source.card, source.index) : '画像・動画の素材';
+  if (source && /No such file or directory|File not found/i.test(details)) return failure('MEDIA_NOT_FOUND', label + 'の素材ファイルが見つかりません。移動・削除されていないか確認し、素材を選び直してください。', details);
+  if (source && /Permission denied|Access is denied|Operation not permitted/i.test(details) && (!outputPath || details.indexOf(outputPath) === -1)) return failure('MEDIA_PERMISSION', label + 'の素材ファイルを開けません。ファイルの読み取り権限を確認するか、別の場所にコピーして選び直してください。', details);
+  if (/Invalid data found|Error opening input|Decoder.*not found|Error while decoding|Invalid.*header|could not find codec parameters|does not contain any stream|matches no streams|Cannot determine format of input stream|Could not find.*codec|unsupported.*codec|Unknown decoder|Error.*demux/i.test(details)) {
+    return failure('MEDIA_DECODE_FAILED', label + 'を読み込めません。素材を選び直すか、PNG・JPEG画像やMP4動画に変換してお試しください。', details);
+  }
+  if (/No space left on device|Disk quota exceeded/i.test(details)) return failure('OUTPUT_DISK_FULL', '書き出し先の空き容量が足りません。空き容量を増やすか、別の保存先を選んでください。', details);
+  if (/Permission denied|Access is denied|Read-only file system|Error opening output|Failed to open.*output|Could not open.*output/i.test(details)) return failure('OUTPUT_WRITE_FAILED', '動画を保存できません。保存先の権限を確認し、別のフォルダーを選んでください。', details);
+  return failure('RENDER_FAILED', '動画を書き出せませんでした。素材と保存先を確認して、もう一度お試しください。', details);
+}
+
+function number(value, label, min, max, integer) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max || (integer && !Number.isInteger(value))) {
+    throw new Error(label + ' の値が不正です。');
+  }
+  return value;
+}
+
+function color(value, label) {
+  if (!/^#[0-9a-fA-F]{6}$/.test(value)) throw new Error(label + ' は #RRGGBB で指定してください。');
+  return '0x' + value.slice(1);
+}
+
+function validate(project, outputPath) {
+  if (!project || typeof project !== 'object') throw new Error('演出設定がありません。');
+  number(project.width, '幅', 64, 7680, true);
+  number(project.height, '高さ', 64, 4320, true);
+  if (project.width % 2 || project.height % 2) throw new Error('出力サイズは偶数にしてください。');
+  number(project.fps, 'フレームレート', 1, 120);
+  number(project.duration, '全体の長さ', 0.1, 600);
+  number(project.cardWidth, 'カード幅', 8, 4096, true);
+  number(project.cardHeight, 'カード高さ', 8, 4096, true);
+  number(project.dropDuration, '降下時間', 0.01, 60);
+  number(project.flipDuration, 'めくり時間', 0.01, 60);
+  color(project.backColor, '裏面の色');
+  color(project.borderColor, '枠の色');
+  if (!Array.isArray(project.cards) || project.cards.length < 1 || project.cards.length > 12) throw new Error('カードは1〜12枚にしてください。');
+  if (project.backgroundMode && ['transparent', 'solid'].indexOf(project.backgroundMode) === -1) throw new Error('背景は透過または単色にしてください。');
+  if (project.backgroundMode === 'solid') color(project.backgroundColor, '背景の色');
+  if (project.mode === 'trapezoid') {
+    if (project.cards.length < 3) throw new Error('台形3分割には素材を3つ用意してください。');
+    const split = project.trapezoid;
+    if (!split || typeof split !== 'object') throw new Error('台形3分割の設定がありません。');
+    number(split.angle, '傾きの角度', -20, 20);
+    number(split.borderWidth, '境界線の太さ', 0, 64);
+    color(split.borderColor, '境界線の色');
+    number(split.slideDuration, 'スライド時間', 0.05, 10);
+    number(split.interval, '登場の間隔', 0, 30);
+    number(split.startAt, '登場開始時刻', 0, project.duration);
+    if (split.startAt + 2 * split.interval + split.slideDuration > project.duration + 0.000001) throw new Error('3枚目のスライドが終わるように演出の長さを延ばしてください。');
+  }
+  if (typeof outputPath !== 'string' || !path.isAbsolute(outputPath) || path.extname(outputPath).toLowerCase() !== '.mov') throw new Error('書き出し先は絶対パスの .mov ファイルにしてください。');
+  activeCards(project).forEach(function (card, index) {
+    const label = cardLabel(card, index);
+    if (project.mode !== 'trapezoid') {
+      number(card.x, label + 'のX位置', -7680, 15360);
+      number(card.y, label + 'のY位置', -4320, 8640);
+      number(card.dropAt, label + 'の登場時刻', 0, project.duration);
+      number(card.flipAt, label + 'のめくり時刻', 0, project.duration);
+      if (card.flipAt < card.dropAt) throw new Error(label + 'は登場後にめくってください。');
+      if (card.flipAt + project.flipDuration > project.duration + 0.000001) throw new Error(label + 'のめくりが演出の長さを超えています。');
+    }
+    number(card.mediaOffset || 0, label + 'の素材開始位置', 0, 86400);
+    if (card.mediaPath) {
+      if (typeof card.mediaPath !== 'string' || !path.isAbsolute(card.mediaPath)) throw failure('MEDIA_PATH_INVALID', label + 'の素材ファイルを選び直してください。ファイルの場所が正しくありません。');
+      let info;
+      try { info = fs.statSync(card.mediaPath); } catch (error) {
+        if (error.code === 'EACCES' || error.code === 'EPERM') throw failure('MEDIA_PERMISSION', label + 'の素材ファイルを開けません。読み取り権限を確認するか、別の場所にコピーして選び直してください。', error.message);
+        throw failure('MEDIA_NOT_FOUND', label + 'の素材ファイルが見つかりません。移動・削除されていないか確認し、素材を選び直してください。', error.message);
+      }
+      if (!info.isFile()) throw failure('MEDIA_PATH_INVALID', label + 'の素材はフォルダーになっています。画像または動画のファイルを選んでください。');
+      if (info.size === 0) throw failure('MEDIA_EMPTY', label + 'の素材ファイルは空です。画像・動画が正常に保存されているか確認し、素材を選び直してください。');
+      if (card.mediaType !== 'image' && card.mediaType !== 'video') throw new Error(label + 'の素材の種類が不正です。');
+      if (path.resolve(card.mediaPath).toLowerCase() === path.resolve(outputPath).toLowerCase()) throw new Error('素材ファイル自身へは上書きできません。');
+    }
+  });
+}
+
+// A seek past EOF can silently draw no front media; a damaged image used with
+// an infinite image loop can repeatedly fail decoding. Check a single frame
+// without looping before encoding, using the bundled FFmpeg (no ffprobe).
+async function checkMedia(project, options) {
+  const cards = activeCards(project);
+  for (let index = 0; index < cards.length; index += 1) {
+    const card = cards[index];
+    if (!card.mediaPath) continue;
+    await new Promise(function (resolve, reject) {
+      if (options.signal && options.signal.aborted) { reject(cancelled()); return; }
+      let child;
+      const args = ['-hide_banner', '-nostdin', '-loglevel', 'error'];
+      if (card.mediaType === 'video' && card.mediaOffset > 0) args.push('-ss', String(card.mediaOffset));
+      args.push('-i', card.mediaPath, '-map', '0:v:0', '-frames:v', '1', '-an', '-sn', '-dn', '-progress', 'pipe:1', '-nostats', '-f', 'null', '-');
+      try { child = childProcess.spawn(options.ffmpegPath || 'ffmpeg', args, { shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }); } catch (error) { reject(launchFailure(error)); return; }
+      let stdout = '';
+      let details = '';
+      let aborted = false;
+      const abort = function () { aborted = true; child.kill(); };
+      if (options.signal) options.signal.addEventListener('abort', abort, { once: true });
+      child.stdout.on('data', function (chunk) { stdout = (stdout + chunk.toString()).slice(-2000); });
+      child.stderr.on('data', function (chunk) { details = (details + chunk.toString()).slice(-6000); });
+      child.on('error', function (error) {
+        if (options.signal) options.signal.removeEventListener('abort', abort);
+        reject(launchFailure(error));
+      });
+      child.on('close', function (code) {
+        if (options.signal) options.signal.removeEventListener('abort', abort);
+        if (aborted) { reject(cancelled()); return; }
+        if (code !== 0) { reject(renderFailure(project, details, '', { card: card, index: index })); return; }
+        if (!/(?:^|\n)frame=\s*[1-9]\d*(?:\r?\n|$)/.test(stdout)) {
+          reject(card.mediaType === 'video' && card.mediaOffset > 0
+            ? failure('MEDIA_OFFSET_OUT_OF_RANGE', cardLabel(card, index) + 'の素材の開始位置（' + card.mediaOffset + '秒）から再生できる映像がありません。開始位置を短くするか、素材を選び直してください。', details || stdout)
+            : failure('MEDIA_DECODE_FAILED', cardLabel(card, index) + 'から画像・映像を読み取れません。正常に再生できる素材を選び直してください。', details || stdout));
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+}
+
+function buildArgs(project, outputPath) {
+  validate(project, outputPath);
+  if (project.mode === 'trapezoid') return buildTrapezoidArgs(project, outputPath);
+  const args = ['-hide_banner', '-y', '-nostdin', '-loglevel', 'warning', '-filter_complex_threads', '1'];
+  const graph = [];
+  const width = project.cardWidth;
+  const height = project.cardHeight;
+  const duration = project.duration;
+  const fps = project.fps;
+  const back = color(project.backColor, '裏面の色');
+  const border = color(project.borderColor, '枠の色');
+  const thickness = Math.max(1, Math.round(Math.min(width, height) / 80));
+  const source = function (fill, w, h) { return 'color=c=' + fill + ':s=' + w + 'x' + h + ':r=' + fps + ':d=' + duration + ',format=rgba'; };
+  const background = project.backgroundMode === 'solid' ? color(project.backgroundColor, '背景の色') : 'black@0.0';
+  graph.push(source(background, project.width, project.height) + '[base]');
+  let input = 0;
+  project.cards.forEach(function (card, index) {
+    const prefix = 'c' + index;
+    const reveal = card.flipAt + project.flipDuration / 2;
+    // Front is prepared from timeline zero so that the flip does not jump its
+    // media stream. tpad freezes the first frame until the visible reveal.
+    if (card.mediaPath) {
+      if (card.mediaType === 'image') args.push('-loop', '1', '-framerate', String(fps));
+      else if (card.mediaOffset) args.push('-ss', String(card.mediaOffset));
+      args.push('-i', card.mediaPath);
+      const timeline = card.mediaType === 'video' ? ',tpad=start_mode=clone:start_duration=' + reveal + ':stop_mode=clone:stop_duration=' + duration : '';
+      graph.push('[' + input + ':v]setpts=PTS-STARTPTS,format=rgba,scale=' + width + ':' + height + ':force_original_aspect_ratio=increase,crop=' + width + ':' + height + ',setsar=1,fps=' + fps + timeline + ',trim=duration=' + duration + ',drawbox=x=0:y=0:w=iw:h=ih:color=' + border + ':t=' + thickness + '[' + prefix + 'front]');
+      input += 1;
+    } else {
+      const palette = ['0x7546b8', '0x157d8d', '0xad5c2d', '0x5374ad'];
+      graph.push(source(palette[index % palette.length], width, height) + ',drawbox=x=0:y=0:w=iw:h=ih:color=' + border + ':t=' + thickness + '[' + prefix + 'front]');
+    }
+    graph.push(source(back, width, height) + ',drawbox=x=0:y=0:w=iw:h=ih:color=' + border + ':t=' + thickness + ',drawbox=x=iw*0.12:y=ih*0.08:w=iw*0.76:h=ih*0.84:color=' + border + '@0.38:t=' + thickness + '[' + prefix + 'back]');
+    graph.push('[' + prefix + 'back][' + prefix + 'front]overlay=0:0:enable=\'gte(t,' + reveal + ')\':format=auto[' + prefix + 'face]');
+    const p = 'clip((t-' + card.flipAt + ')/' + project.flipDuration + ',0,1)';
+    const smooth = '(' + p + '*' + p + '*(3-2*' + p + '))';
+    // Keep a two-pixel edge at the midpoint to avoid zero-sized filter frames.
+    graph.push('[' + prefix + 'face]scale=w=\'max(2,round(' + width + '*abs(cos(PI*' + smooth + '))))\':h=' + height + ':eval=frame,setsar=1[' + prefix + 'flip]');
+    const dropP = 'clip((t-' + card.dropAt + ')/' + project.dropDuration + ',0,1)';
+    const start = -height / 2 - 40;
+    const centerY = '(' + start + '+(' + card.y + '-(' + start + '))*(1-pow(1-' + dropP + ',3)))';
+    const previous = index === 0 ? 'base' : 'out' + (index - 1);
+    graph.push('[' + previous + '][' + prefix + 'flip]overlay=x=\'' + card.x + '-overlay_w/2\':y=\'' + centerY + '-overlay_h/2\':enable=\'gte(t,' + card.dropAt + ')\':eval=frame:format=auto[out' + index + ']');
+  });
+  args.push('-filter_complex', graph.join(';'), '-map', '[out' + (project.cards.length - 1) + ']', '-an', '-t', String(duration), '-r', String(fps), '-c:v', 'prores_ks', '-profile:v', '4', '-pix_fmt', 'yuva444p10le', '-alpha_bits', '16', '-vendor', 'apl0', '-metadata:s:v:0', 'alpha_mode=1', '-progress', 'pipe:1', '-nostats', outputPath);
+  return args;
+}
+
+function buildTrapezoidArgs(project, outputPath) {
+  const args = ['-hide_banner', '-y', '-nostdin', '-loglevel', 'warning', '-filter_complex_threads', '1'];
+  const graph = [];
+  const fps = project.fps;
+  const duration = project.duration;
+  const height = project.height;
+  const settings = project.trapezoid;
+  const polygons = model.splitPolygons(project);
+  const background = project.backgroundMode === 'solid' ? color(project.backgroundColor, '背景の色') : 'black@0.0';
+  graph.push('color=c=' + background + ':s=' + project.width + 'x' + height + ':r=' + fps + ':d=' + duration + ',format=rgba[base]');
+  let input = 0;
+  activeCards(project).forEach(function (card, index) {
+    const prefix = 's' + index;
+    const points = polygons[index];
+    const left = Math.floor(Math.min.apply(null, points.map(function (point) { return point.x; })));
+    const right = Math.ceil(Math.max.apply(null, points.map(function (point) { return point.x; })));
+    const width = right - left;
+    const dropAt = settings.startAt + index * settings.interval;
+    const leftSlope = (points[3].x - points[0].x) / height;
+    const rightSlope = (points[2].x - points[1].x) / height;
+    const leftEdge = '(' + (points[0].x - left) + '+(' + leftSlope + ')*Y)';
+    const rightEdge = '(' + (points[1].x - left) + '+(' + rightSlope + ')*Y)';
+    const inside = '(gte(X,' + leftEdge + ')*lt(X,' + rightEdge + '))';
+    // Compute static masks once, then repeat the single frame. No per-pixel
+    // polygon expression is evaluated during each 60/90/120fps media frame.
+    const repeat = ',loop=loop=-1:size=1:start=0,setpts=N/(' + fps + '*TB),trim=duration=' + duration;
+    graph.push('color=white:s=' + width + 'x' + height + ':r=' + fps + ':d=' + (1 / fps) + ',format=gray,geq=lum=\'255*' + inside + '\'' + repeat + '[' + prefix + 'mask]');
+    if (card.mediaPath) {
+      if (card.mediaType === 'image') args.push('-loop', '1', '-framerate', String(fps));
+      else if (card.mediaOffset) args.push('-ss', String(card.mediaOffset));
+      args.push('-i', card.mediaPath);
+      const timeline = card.mediaType === 'video' ? ',tpad=start_mode=clone:start_duration=' + dropAt + ':stop_mode=clone:stop_duration=' + duration : '';
+      graph.push('[' + input + ':v]setpts=PTS-STARTPTS,format=rgba,scale=' + width + ':' + height + ':force_original_aspect_ratio=increase,crop=' + width + ':' + height + ',setsar=1,fps=' + fps + timeline + ',trim=duration=' + duration + '[' + prefix + 'media]');
+      input += 1;
+    } else {
+      const palette = ['0x7546b8', '0x157d8d', '0xad5c2d'];
+      graph.push('color=c=' + palette[index] + ':s=' + width + 'x' + height + ':r=' + fps + ':d=' + duration + ',format=rgba[' + prefix + 'media]');
+    }
+    graph.push('[' + prefix + 'media]split[' + prefix + 'rgb][' + prefix + 'alphaSource]');
+    graph.push('[' + prefix + 'alphaSource]alphaextract[' + prefix + 'alpha]');
+    graph.push('[' + prefix + 'alpha][' + prefix + 'mask]blend=all_mode=multiply[' + prefix + 'maskedAlpha]');
+    graph.push('[' + prefix + 'rgb][' + prefix + 'maskedAlpha]alphamerge[' + prefix + 'clipped]');
+    let layer = prefix + 'clipped';
+    if (settings.borderWidth > 0) {
+      const edges = [];
+      if (index > 0) edges.push('lte(abs(X-' + leftEdge + ')/' + Math.sqrt(1 + leftSlope * leftSlope) + ',' + settings.borderWidth / 2 + ')');
+      if (index < 2) edges.push('lte(abs(X-' + rightEdge + ')/' + Math.sqrt(1 + rightSlope * rightSlope) + ',' + settings.borderWidth / 2 + ')');
+      const boundary = 'min(1,' + edges.join('+') + ')*' + inside;
+      graph.push('color=c=' + color(settings.borderColor, '境界線の色') + ':s=' + width + 'x' + height + ':r=' + fps + ':d=' + (1 / fps) + ',format=rgba,geq=r=\'r(X,Y)\':g=\'g(X,Y)\':b=\'b(X,Y)\':a=\'255*(' + boundary + ')\'' + repeat + '[' + prefix + 'border]');
+      graph.push('[' + prefix + 'clipped][' + prefix + 'border]overlay=0:0:format=auto[' + prefix + 'layer]');
+      layer = prefix + 'layer';
+    }
+    const previous = index === 0 ? 'base' : 'out' + (index - 1);
+    const progress = 'clip((t-' + dropAt + ')/' + settings.slideDuration + ',0,1)';
+    graph.push('[' + previous + '][' + layer + ']overlay=x=' + left + ':y=\'-' + height + '*pow(1-' + progress + ',3)\':enable=\'gte(t,' + dropAt + ')\':eval=frame:format=auto[out' + index + ']');
+  });
+  args.push('-filter_complex', graph.join(';'), '-map', '[out2]', '-an', '-t', String(duration), '-r', String(fps), '-c:v', 'prores_ks', '-profile:v', '4', '-pix_fmt', 'yuva444p10le', '-alpha_bits', '16', '-vendor', 'apl0', '-metadata:s:v:0', 'alpha_mode=1', '-progress', 'pipe:1', '-nostats', outputPath);
+  return args;
+}
+
+async function render(project, options) {
+  options = options || {};
+  validate(project, options.outputPath);
+  if (options.signal && options.signal.aborted) throw cancelled();
+  await checkMedia(project, options);
+  return new Promise(function (resolve, reject) {
+    let args;
+    let temporaryPath;
+    try {
+      validate(project, options.outputPath);
+      temporaryPath = path.join(path.dirname(options.outputPath), '.' + path.basename(options.outputPath) + '.' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + '.mov');
+      args = buildArgs(project, temporaryPath);
+    } catch (error) { reject(error); return; }
+    const ffmpegPath = options.ffmpegPath || 'ffmpeg';
+    if (options.signal && options.signal.aborted) { reject(cancelled()); return; }
+    let process;
+    try { process = childProcess.spawn(ffmpegPath, args, { shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }); } catch (error) { reject(launchFailure(error)); return; }
+    let errors = '';
+    let progressBuffer = '';
+    let aborted = false;
+    const abort = function () { aborted = true; process.kill(); };
+    if (options.signal) options.signal.addEventListener('abort', abort, { once: true });
+    process.stderr.on('data', function (chunk) { errors = (errors + chunk.toString()).slice(-6000); });
+    process.stdout.on('data', function (chunk) {
+      progressBuffer += chunk.toString();
+      const lines = progressBuffer.split(/\r?\n/);
+      progressBuffer = lines.pop();
+      lines.forEach(function (line) {
+        const match = /^out_time_us=(\d+)$/.exec(line);
+        if (match && typeof options.onProgress === 'function') options.onProgress(Math.min(0.999, Number(match[1]) / 1000000 / project.duration));
+      });
+    });
+    process.on('error', function (error) {
+      if (options.signal) options.signal.removeEventListener('abort', abort);
+      reject(launchFailure(error));
+    });
+    process.on('close', function (code) {
+      if (options.signal) options.signal.removeEventListener('abort', abort);
+      if (aborted || code !== 0) {
+        // A failed movie must not be mistaken for a complete render.
+        try { fs.unlinkSync(temporaryPath); } catch (_) { /* no partial output */ }
+        reject(aborted ? cancelled() : renderFailure(project, errors, temporaryPath));
+        return;
+      }
+      try { fs.renameSync(temporaryPath, options.outputPath); } catch (error) {
+        try { fs.unlinkSync(temporaryPath); } catch (_) { /* no partial output */ }
+        reject(failure('OUTPUT_SAVE_FAILED', '完成した動画を保存できません。保存先が他のアプリで開かれていないか確認するか、別の保存先を選んでください。', error.message));
+        return;
+      }
+      if (typeof options.onProgress === 'function') options.onProgress(1);
+      resolve({ outputPath: options.outputPath });
+    });
+  });
+}
+
+module.exports = { buildArgs: buildArgs, render: render };
