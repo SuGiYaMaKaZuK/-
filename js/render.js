@@ -99,6 +99,9 @@ function validate(project, outputPath) {
       if (card.flipAt + project.flipDuration > project.duration + 0.000001) throw new Error(label + 'のめくりが演出の長さを超えています。');
     }
     number(card.mediaOffset || 0, label + 'の素材開始位置', 0, 86400);
+    number(card.mediaScale === undefined ? 100 : card.mediaScale, label + 'の素材の拡大率', 10, 400);
+    number(card.mediaX === undefined ? 0 : card.mediaX, label + 'の素材のX位置', -2 * project.width, 2 * project.width);
+    number(card.mediaY === undefined ? 0 : card.mediaY, label + 'の素材のY位置', -2 * project.height, 2 * project.height);
     if (card.mediaPath) {
       if (typeof card.mediaPath !== 'string' || !path.isAbsolute(card.mediaPath)) throw failure('MEDIA_PATH_INVALID', label + 'の素材ファイルを選び直してください。ファイルの場所が正しくありません。');
       let info;
@@ -119,23 +122,35 @@ function validate(project, outputPath) {
 // without looping before encoding, using the bundled FFmpeg (no ffprobe).
 async function checkMedia(project, options) {
   const cards = activeCards(project);
+  const sources = [];
   for (let index = 0; index < cards.length; index += 1) {
     const card = cards[index];
     if (!card.mediaPath) continue;
-    await new Promise(function (resolve, reject) {
+    sources[index] = await new Promise(function (resolve, reject) {
       if (options.signal && options.signal.aborted) { reject(cancelled()); return; }
       let child;
-      const args = ['-hide_banner', '-nostdin', '-loglevel', 'error'];
+      const args = ['-hide_banner', '-nostdin', '-loglevel', 'info'];
       if (card.mediaType === 'video' && card.mediaOffset > 0) args.push('-ss', String(card.mediaOffset));
-      args.push('-i', card.mediaPath, '-map', '0:v:0', '-frames:v', '1', '-an', '-sn', '-dn', '-progress', 'pipe:1', '-nostats', '-f', 'null', '-');
+      args.push('-i', card.mediaPath, '-map', '0:v:0', '-vf', 'showinfo', '-frames:v', '1', '-an', '-sn', '-dn', '-progress', 'pipe:1', '-nostats', '-f', 'null', '-');
       try { child = childProcess.spawn(options.ffmpegPath || 'ffmpeg', args, { shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }); } catch (error) { reject(launchFailure(error)); return; }
       let stdout = '';
       let details = '';
+      let dimensionBuffer = '';
+      let dimensions = null;
       let aborted = false;
       const abort = function () { aborted = true; child.kill(); };
       if (options.signal) options.signal.addEventListener('abort', abort, { once: true });
       child.stdout.on('data', function (chunk) { stdout = (stdout + chunk.toString()).slice(-2000); });
-      child.stderr.on('data', function (chunk) { details = (details + chunk.toString()).slice(-6000); });
+      child.stderr.on('data', function (chunk) {
+        const text = chunk.toString();
+        // showinfo's frame line can precede large HDR/SEI side data. Remember
+        // dimensions as they arrive, independently of the truncated error log.
+        dimensionBuffer += text;
+        const size = /\bs:(\d+)x(\d+)\b/.exec(dimensionBuffer);
+        if (size) dimensions = { width: Number(size[1]), height: Number(size[2]) };
+        dimensionBuffer = dimensionBuffer.slice(-512);
+        details = (details + text).slice(-6000);
+      });
       child.on('error', function (error) {
         if (options.signal) options.signal.removeEventListener('abort', abort);
         reject(launchFailure(error));
@@ -150,15 +165,73 @@ async function checkMedia(project, options) {
             : failure('MEDIA_DECODE_FAILED', cardLabel(card, index) + 'から画像・映像を読み取れません。正常に再生できる素材を選び直してください。', details || stdout));
           return;
         }
-        resolve();
+        if (!dimensions || !(dimensions.width > 0 && dimensions.height > 0)) {
+          reject(failure('MEDIA_DIMENSIONS_UNKNOWN', cardLabel(card, index) + 'の画像サイズを確認できません。素材を選び直すか、別の画像・動画形式に変換してお試しください。', details));
+          return;
+        }
+        resolve(dimensions);
       });
     });
   }
+  return sources;
 }
 
-function buildArgs(project, outputPath) {
+// Place the original source in a fixed, transparent frame. Cropping the source
+// viewport first avoids a 400% 4K intermediate while preserving cover-fit zoom.
+function mediaFrame(graph, input, prefix, width, height, project, card, startsAt, source, fill) {
+  const fps = project.fps;
+  const duration = project.duration;
+  const zoom = (card.mediaScale === undefined ? 100 : card.mediaScale) / 100;
+  const panX = card.mediaX === undefined ? 0 : card.mediaX;
+  const panY = card.mediaY === undefined ? 0 : card.mediaY;
+  let transform;
+  let x;
+  let y;
+  if (source && source.width > 0 && source.height > 0) {
+    const rect = model.mediaRect(card, source.width, source.height, width, height);
+    const visibleX = Math.max(0, rect.x), visibleY = Math.max(0, rect.y);
+    const visibleRight = Math.min(width, rect.x + rect.width), visibleBottom = Math.min(height, rect.y + rect.height);
+    if (visibleRight <= visibleX || visibleBottom <= visibleY) {
+      const blankTimeline = card.mediaType === 'video' ? ',tpad=start_mode=clone:start_duration=' + startsAt + ':stop_mode=clone:stop_duration=' + duration : '';
+      // Keep the source connected to a finite output. An infinite image input
+      // attached only to nullsink can otherwise keep the graph alive forever.
+      graph.push('[' + input + ':v]setpts=PTS-STARTPTS,format=rgba,scale=1:1,setsar=1,colorchannelmixer=aa=0,pad=' + width + ':' + height + ':0:0:color=black@0,fps=' + fps + blankTimeline + ',trim=duration=' + duration + '[' + prefix + 'blank]');
+      graph.push('color=c=' + (fill || 'black@0') + ':s=' + width + 'x' + height + ':r=' + fps + ':d=' + duration + ',format=rgba[' + prefix + 'canvas]');
+      graph.push('[' + prefix + 'canvas][' + prefix + 'blank]overlay=0:0:format=auto[' + prefix + 'frame]');
+      return prefix + 'frame';
+    }
+    // Keep two neighboring source pixels for the scaler's interpolation kernel.
+    const sourceX = Math.max(0, Math.floor((visibleX - rect.x) * source.width / rect.width) - 2);
+    const sourceY = Math.max(0, Math.floor((visibleY - rect.y) * source.height / rect.height) - 2);
+    const sourceRight = Math.min(source.width, Math.ceil((visibleRight - rect.x) * source.width / rect.width) + 2);
+    const sourceBottom = Math.min(source.height, Math.ceil((visibleBottom - rect.y) * source.height / rect.height) + 2);
+    const sourceWidth = sourceRight - sourceX, sourceHeight = sourceBottom - sourceY;
+    let scaledWidth = Math.max(1, Math.round(sourceWidth * rect.width / source.width));
+    let scaledHeight = Math.max(1, Math.round(sourceHeight * rect.height / source.height));
+    x = String(rect.x + Math.round(sourceX * rect.width / source.width));
+    y = String(rect.y + Math.round(sourceY * rect.height / source.height));
+    // A one-pixel source is constant along that axis; omit any invisible
+    // overscan rather than expanding one pixel to many thousands of pixels.
+    if (sourceWidth === 1) { scaledWidth = visibleRight - visibleX; x = String(visibleX); }
+    if (sourceHeight === 1) { scaledHeight = visibleBottom - visibleY; y = String(visibleY); }
+    if (scaledWidth * scaledHeight > 64000000) throw failure('MEDIA_TRANSFORM_TOO_LARGE', '素材を拡大するための画像サイズが大きすぎます。拡大率を下げるか、解像度の高い素材を選んでください。');
+    transform = 'crop=w=' + sourceWidth + ':h=' + sourceHeight + ':x=' + sourceX + ':y=' + sourceY + ':exact=1,scale=' + scaledWidth + ':' + scaledHeight;
+  } else {
+    const factor = 'max(' + width + '/iw,' + height + '/ih)*' + zoom;
+    transform = 'scale=w=\'max(1,round(iw*' + factor + '))\':h=\'max(1,round(ih*' + factor + '))\'';
+    x = '\'floor((' + width + '-overlay_w)/2+' + panX + '+0.5)\'';
+    y = '\'floor((' + height + '-overlay_h)/2+' + panY + '+0.5)\'';
+  }
+  const timeline = card.mediaType === 'video' ? ',tpad=start_mode=clone:start_duration=' + startsAt + ':stop_mode=clone:stop_duration=' + duration : '';
+  graph.push('[' + input + ':v]setpts=PTS-STARTPTS,format=rgba,' + transform + ',setsar=1,fps=' + fps + timeline + ',trim=duration=' + duration + '[' + prefix + 'scaled]');
+  graph.push('color=c=' + (fill || 'black@0') + ':s=' + width + 'x' + height + ':r=' + fps + ':d=' + duration + ',format=rgba[' + prefix + 'canvas]');
+  graph.push('[' + prefix + 'canvas][' + prefix + 'scaled]overlay=x=' + x + ':y=' + y + ':format=auto[' + prefix + 'frame]');
+  return prefix + 'frame';
+}
+
+function buildArgs(project, outputPath, sources) {
   validate(project, outputPath);
-  if (project.mode === 'trapezoid') return buildTrapezoidArgs(project, outputPath);
+  if (project.mode === 'trapezoid') return buildTrapezoidArgs(project, outputPath, sources);
   const args = ['-hide_banner', '-y', '-nostdin', '-loglevel', 'warning', '-filter_complex_threads', '1'];
   const graph = [];
   const width = project.cardWidth;
@@ -181,8 +254,8 @@ function buildArgs(project, outputPath) {
       if (card.mediaType === 'image') args.push('-loop', '1', '-framerate', String(fps));
       else if (card.mediaOffset) args.push('-ss', String(card.mediaOffset));
       args.push('-i', card.mediaPath);
-      const timeline = card.mediaType === 'video' ? ',tpad=start_mode=clone:start_duration=' + reveal + ':stop_mode=clone:stop_duration=' + duration : '';
-      graph.push('[' + input + ':v]setpts=PTS-STARTPTS,format=rgba,scale=' + width + ':' + height + ':force_original_aspect_ratio=increase,crop=' + width + ':' + height + ',setsar=1,fps=' + fps + timeline + ',trim=duration=' + duration + ',drawbox=x=0:y=0:w=iw:h=ih:color=' + border + ':t=' + thickness + '[' + prefix + 'front]');
+      const frame = mediaFrame(graph, input, prefix, width, height, project, card, reveal, sources && sources[index], back);
+      graph.push('[' + frame + ']drawbox=x=0:y=0:w=iw:h=ih:color=' + border + ':t=' + thickness + '[' + prefix + 'front]');
       input += 1;
     } else {
       const palette = ['0x7546b8', '0x157d8d', '0xad5c2d', '0x5374ad'];
@@ -204,7 +277,7 @@ function buildArgs(project, outputPath) {
   return args;
 }
 
-function buildTrapezoidArgs(project, outputPath) {
+function buildTrapezoidArgs(project, outputPath, sources) {
   const args = ['-hide_banner', '-y', '-nostdin', '-loglevel', 'warning', '-filter_complex_threads', '1'];
   const graph = [];
   const fps = project.fps;
@@ -235,8 +308,8 @@ function buildTrapezoidArgs(project, outputPath) {
       if (card.mediaType === 'image') args.push('-loop', '1', '-framerate', String(fps));
       else if (card.mediaOffset) args.push('-ss', String(card.mediaOffset));
       args.push('-i', card.mediaPath);
-      const timeline = card.mediaType === 'video' ? ',tpad=start_mode=clone:start_duration=' + dropAt + ':stop_mode=clone:stop_duration=' + duration : '';
-      graph.push('[' + input + ':v]setpts=PTS-STARTPTS,format=rgba,scale=' + width + ':' + height + ':force_original_aspect_ratio=increase,crop=' + width + ':' + height + ',setsar=1,fps=' + fps + timeline + ',trim=duration=' + duration + '[' + prefix + 'media]');
+      const frame = mediaFrame(graph, input, prefix, width, height, project, card, dropAt, sources && sources[index]);
+      graph.push('[' + frame + ']null[' + prefix + 'media]');
       input += 1;
     } else {
       const palette = ['0x7546b8', '0x157d8d', '0xad5c2d'];
@@ -268,14 +341,14 @@ async function render(project, options) {
   options = options || {};
   validate(project, options.outputPath);
   if (options.signal && options.signal.aborted) throw cancelled();
-  await checkMedia(project, options);
+  const sources = await checkMedia(project, options);
   return new Promise(function (resolve, reject) {
     let args;
     let temporaryPath;
     try {
       validate(project, options.outputPath);
       temporaryPath = path.join(path.dirname(options.outputPath), '.' + path.basename(options.outputPath) + '.' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + '.mov');
-      args = buildArgs(project, temporaryPath);
+      args = buildArgs(project, temporaryPath, sources);
     } catch (error) { reject(error); return; }
     const ffmpegPath = options.ffmpegPath || 'ffmpeg';
     if (options.signal && options.signal.aborted) { reject(cancelled()); return; }

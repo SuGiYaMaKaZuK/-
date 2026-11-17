@@ -7,10 +7,10 @@
   var serial = 0;
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
   function card(index) {
-    return { id: 'card-' + Date.now().toString(36) + '-' + (++serial), name: 'カード ' + (index + 1), mediaPath: '', mediaType: '', x: 480 + index * 480, y: 570, dropAt: index * 0.18, flipAt: 1.8 + index * 0.8, mediaOffset: 0 };
+    return { id: 'card-' + Date.now().toString(36) + '-' + (++serial), name: 'カード ' + (index + 1), mediaPath: '', mediaType: '', x: 480 + index * 480, y: 570, dropAt: index * 0.18, flipAt: 1.8 + index * 0.8, mediaOffset: 0, mediaScale:100, mediaX:0, mediaY:0 };
   }
   function createProject() {
-    return upgrade({ version: 2, width: 1920, height: 1080, fps: 30, duration: 7, cardWidth: 320, cardHeight: 448, dropDuration: 0.8, flipDuration: 0.6, backColor: '#251b4d', borderColor: '#b9a0ff', cards: [card(0), card(1), card(2)] });
+    return upgrade({ version: 3, width: 1920, height: 1080, fps: 30, duration: 7, cardWidth: 320, cardHeight: 448, dropDuration: 0.8, flipDuration: 0.6, backColor: '#251b4d', borderColor: '#b9a0ff', cards: [card(0), card(1), card(2)] });
   }
   function upgrade(project) {
     if (!project || typeof project !== 'object' || Array.isArray(project)) return project;
@@ -18,8 +18,21 @@
     if (project.backgroundMode === undefined) project.backgroundMode = 'transparent';
     if (project.backgroundColor === undefined) project.backgroundColor = '#10131c';
     if (project.trapezoid === undefined) project.trapezoid = { angle: 8, borderWidth: 4, borderColor: '#ffffff', slideDuration: 0.8, interval: 0.25, startAt: 0 };
-    project.version = 2;
+    if (Array.isArray(project.cards)) project.cards.forEach(function(c) {
+      if (!c || typeof c !== 'object') return;
+      if (c.mediaScale === undefined) c.mediaScale=100;
+      if (c.mediaX === undefined) c.mediaX=0;
+      if (c.mediaY === undefined) c.mediaY=0;
+    });
+    project.version = 3;
     return project;
+  }
+  function mediaRect(c, sourceWidth, sourceHeight, frameWidth, frameHeight) {
+    if (!(sourceWidth>0 && sourceHeight>0 && frameWidth>0 && frameHeight>0)) return {x:0,y:0,width:0,height:0};
+    var zoom = c.mediaScale === undefined ? 100 : c.mediaScale;
+    var factor = Math.max(frameWidth/sourceWidth,frameHeight/sourceHeight)*zoom/100;
+    var width=Math.max(1,Math.round(sourceWidth*factor)), height=Math.max(1,Math.round(sourceHeight*factor));
+    return {x:Math.round((frameWidth-width)/2+(c.mediaX===undefined?0:c.mediaX)), y:Math.round((frameHeight-height)/2+(c.mediaY===undefined?0:c.mediaY)), width:width,height:height};
   }
   function layout(project) {
     var count = project.cards.length;
@@ -156,6 +169,9 @@
       range(c,'x',-p.width,2*p.width,label+'X位置'); range(c,'y',-p.height,2*p.height,label+'Y位置');
       range(c,'dropAt',0,p.mode === 'trapezoid' ? 120 : p.duration,label+'登場時刻'); range(c,'flipAt',0,p.mode === 'trapezoid' ? 120 : p.duration,label+'めくる時刻');
       range(c,'mediaOffset',0,86400,label+'素材の開始位置');
+      if (c.mediaScale !== undefined) range(c,'mediaScale',10,400,label+'素材の大きさ');
+      if (c.mediaX !== undefined) range(c,'mediaX',-2*p.width,2*p.width,label+'素材のX位置');
+      if (c.mediaY !== undefined) range(c,'mediaY',-2*p.height,2*p.height,label+'素材のY位置');
       if (p.mode !== 'trapezoid' && c.flipAt < c.dropAt) errors.push(label + 'めくる時刻は登場時刻以降にしてください。');
       if (p.mode !== 'trapezoid' && (c.dropAt + p.dropDuration > p.duration + 1e-8 || c.flipAt + p.flipDuration > p.duration + 1e-8)) errors.push(label + '演出の長さ内に降下・めくりが終わるようにしてください。');
       if (typeof c.mediaPath !== 'string' || c.mediaPath.indexOf('\u0000') !== -1) errors.push(label + '素材のパスが正しくありません。');
@@ -163,5 +179,5 @@
     });
     return errors;
   }
-  return { createProject:createProject, upgrade:upgrade, validate:validate, pose:pose, resizeCards:resizeCards, reorder:reorder, layout:layout, arrange:arrange, sequence:sequence, setMode:setMode, splitPolygons:splitPolygons, splitPose:splitPose };
+  return { createProject:createProject, upgrade:upgrade, validate:validate, pose:pose, mediaRect:mediaRect, resizeCards:resizeCards, reorder:reorder, layout:layout, arrange:arrange, sequence:sequence, setMode:setMode, splitPolygons:splitPolygons, splitPose:splitPose };
 }));

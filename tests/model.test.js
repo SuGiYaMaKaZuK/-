@@ -138,3 +138,34 @@ test('legacy project upgrades preserve saved settings and split mode preserves e
   model.resizeCards(p,7); const ids=p.cards.map(c=>c.id); model.setMode(p,'trapezoid'); model.setMode(p,'cards');
   assert.deepEqual(p.cards.map(c=>c.id),ids);
 });
+
+test('media transforms use the whole original image before the fixed frame clips it', () => {
+  const c=model.createProject().cards[0];
+  assert.deepEqual(model.mediaRect(c,200,100,100,100),{x:-50,y:0,width:200,height:100});
+  c.mediaScale=50;
+  assert.deepEqual(model.mediaRect(c,200,100,100,100),{x:0,y:25,width:100,height:50});
+  c.mediaX=20; c.mediaY=-10;
+  assert.deepEqual(model.mediaRect(c,200,100,100,100),{x:20,y:15,width:100,height:50});
+  c.mediaScale=200; c.mediaX=40; c.mediaY=-30;
+  assert.deepEqual(model.mediaRect(c,200,100,100,100),{x:-110,y:-80,width:400,height:200});
+  assert.deepEqual(model.mediaRect(c,0,0,100,100),{x:0,y:0,width:0,height:0});
+});
+
+test('legacy media settings get centered cover defaults and edited values survive JSON and mode changes', () => {
+  const p=model.createProject(); delete p.cards[0].mediaScale; delete p.cards[0].mediaX; delete p.cards[0].mediaY;
+  assert.deepEqual(model.validate(p),[]);
+  assert.deepEqual(model.mediaRect(p.cards[0],100,200,100,100),{x:0,y:-50,width:100,height:200});
+  model.upgrade(p);
+  assert.deepEqual([p.cards[0].mediaScale,p.cards[0].mediaX,p.cards[0].mediaY],[100,0,0]);
+  p.cards[0].mediaScale=75;p.cards[0].mediaX=-23;p.cards[0].mediaY=41;
+  const restored=model.upgrade(JSON.parse(JSON.stringify(p)));
+  model.reorder(restored,0,2);model.setMode(restored,'trapezoid');model.setMode(restored,'cards');
+  assert.deepEqual(restored.cards.map(c=>[c.mediaScale,c.mediaX,c.mediaY]),[[100,0,0],[100,0,0],[75,-23,41]]);
+});
+
+test('invalid media size and positions cannot be exported or loaded silently', () => {
+  for(const [key,value] of [['mediaScale',0],['mediaScale',401],['mediaScale','150'],['mediaX',Infinity],['mediaX',3841],['mediaY',-2161]]) {
+    const p=model.createProject();p.cards[0][key]=value;
+    assert.ok(model.validate(p).some(e=>/素材の(大きさ|X位置|Y位置)/.test(e)),key);
+  }
+});

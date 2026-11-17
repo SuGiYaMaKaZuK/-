@@ -55,6 +55,60 @@ async function run() {
     assert.ok(front[0] > 240 && front[1] < 10 && front[2] < 10 && front[3] > 250, 'image becomes visible after flip');
     assert.strictEqual(pixel(imageFrames, 2.4, 5, 5)[3], 0, 'background remains transparent');
 
+    const patternPath = path.join(temporary, 'four-color-pattern.ppm');
+    const pattern = Buffer.alloc(320 * 100 * 3);
+    const bands = [[255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 0]];
+    for (let row = 0; row < 100; row += 1) {
+      for (let column = 0; column < 320; column += 1) {
+        const value = bands[Math.floor(column / 80)];
+        const offset = (row * 320 + column) * 3;
+        pattern[offset] = value[0]; pattern[offset + 1] = value[1]; pattern[offset + 2] = value[2];
+      }
+    }
+    fs.writeFileSync(patternPath, Buffer.concat([Buffer.from('P6\n320 100\n255\n'), pattern]));
+    const transformed = project(patternPath, 'image');
+    Object.assign(transformed.cards[0], { x: 80, mediaScale: 25, mediaX: 10, mediaY: -10 });
+    transformed.cards.push(Object.assign({}, transformed.cards[0], { id: 'zoomed', x: 240, mediaScale: 400, mediaX: -20, mediaY: 0 }));
+    const transformedMovie = path.join(temporary, 'transformed-cards.mov');
+    await renderer.render(transformed, { ffmpegPath: ffmpegPath, outputPath: transformedMovie });
+    const transformedFrames = frames(transformedMovie);
+    assert.ok(pixel(transformedFrames, 2.4, 55, 80)[0] > 240, 'shrinking exposes original far-left red band that cover crop would have removed');
+    const yellow = pixel(transformedFrames, 2.4, 115, 80);
+    assert.ok(yellow[0] > 240 && yellow[1] > 240 && yellow[2] < 10, 'shrinking exposes original far-right yellow band before cropping');
+    const hole = pixel(transformedFrames, 2.4, 45, 80);
+    assert.ok(Math.abs(hole[0] - 32) < 5 && Math.abs(hole[2] - 48) < 5 && hole[3] > 250, 'card holes expose its opaque original back after horizontal pan');
+    const lowerHole = pixel(transformedFrames, 2.4, 80, 100);
+    assert.ok(Math.abs(lowerHole[0] - 32) < 5 && Math.abs(lowerHole[2] - 48) < 5, 'negative mediaY moves image up inside a stationary card');
+    const insetHole = pixel(transformedFrames, 2.4, 50, 100);
+    assert.ok(Math.abs(insetHole[0] - 32) < 5 && Math.abs(insetHole[2] - 48) < 5, 'revealed front gaps are plain backColor and never leak decorative back inset lines');
+    const cardBorder = pixel(transformedFrames, 2.4, 80, 40);
+    assert.ok(cardBorder[0] > 225 && cardBorder[1] > 190 && cardBorder[2] > 110, 'card border stays fixed independently of source transform');
+    assert.ok(pixel(transformedFrames, 2.4, 210, 90)[1] > 230, '400% crop uses full-source scale and pan at left side of boundary');
+    assert.ok(pixel(transformedFrames, 2.4, 230, 90)[2] > 230, '400% crop preserves full-source scale and position on right side of boundary');
+    transformed.cards[0].mediaX = 600;
+    const fullyPannedMovie = path.join(temporary, 'fully-panned.mov');
+    const offFrameController = new AbortController();
+    const offFrameTimeout = setTimeout(function () { offFrameController.abort(); }, 3000);
+    try { await renderer.render(transformed, { ffmpegPath: ffmpegPath, outputPath: fullyPannedMovie, signal: offFrameController.signal }); }
+    finally { clearTimeout(offFrameTimeout); }
+    const fullyPannedFrame = command(ffmpegPath, ['-v', 'error', '-ss', '2.4', '-i', fullyPannedMovie, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgba', 'pipe:1']);
+    const offFrameBack = pixel(fullyPannedFrame, 0, 80, 90);
+    assert.ok(Math.abs(offFrameBack[0] - 32) < 5 && Math.abs(offFrameBack[2] - 48) < 5 && offFrameBack[3] > 250, 'completely off-frame image finishes and reveals a plain opaque card front');
+    const sideDataVideo = path.join(temporary, 'large-side-data.mp4');
+    command(ffmpegPath, ['-v', 'error', '-y', '-i', patternPath, '-frames:v', '1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-bsf:v', 'h264_metadata=sei_user_data=00000000000000000000000000000000+' + 'A'.repeat(12000), sideDataVideo]);
+    const sideDataProject = project(sideDataVideo, 'video');
+    Object.assign(sideDataProject.cards[0], { mediaScale: 400, mediaX: -20, mediaY: 0 });
+    const sideDataMovie = path.join(temporary, 'large-side-data-transformed.mov');
+    await renderer.render(sideDataProject, { ffmpegPath: ffmpegPath, outputPath: sideDataMovie });
+    const sideDataFrame = command(ffmpegPath, ['-v', 'error', '-ss', '2.4', '-i', sideDataMovie, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgba', 'pipe:1']);
+    assert.ok(pixel(sideDataFrame, 0, 130, 90)[1] > 225 && pixel(sideDataFrame, 0, 170, 90)[2] > 225, 'large SEI side data cannot discard source dimensions needed for efficient 400% viewport scaling');
+    const invalidTransform = project();
+    invalidTransform.cards[0].mediaScale = 401;
+    assert.throws(function () { renderer.buildArgs(invalidTransform, path.join(temporary, 'invalid-transform.mov')); }, /素材の拡大率/);
+    invalidTransform.cards[0].mediaScale = 100;
+    invalidTransform.cards[0].mediaX = NaN;
+    assert.throws(function () { renderer.buildArgs(invalidTransform, path.join(temporary, 'invalid-transform.mov')); }, /素材のX位置/);
+
     const videoPath = path.join(temporary, 'blue-then-green.mkv');
     command(ffmpegPath, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=blue:s=80x100:r=20:d=1', '-f', 'lavfi', '-i', 'color=lime:s=80x100:r=20:d=0.6', '-filter_complex', '[0:v][1:v]concat=n=2:v=1:a=0', '-c:v', 'ffv1', videoPath]);
     const videoProject = project(videoPath, 'video');
@@ -157,7 +211,8 @@ async function run() {
     split.backgroundColor = '#10131c';
     split.fps = 90;
     split.duration = 1.2;
-    Object.assign(split.cards[1], { mediaPath: videoPath, mediaType: 'video', mediaOffset: 0.5 });
+    Object.assign(split.cards[0], { mediaScale: 25, mediaX: 10, mediaY: 20 });
+    Object.assign(split.cards[1], { mediaPath: videoPath, mediaType: 'video', mediaOffset: 0.5, mediaScale: 50, mediaX: -10, mediaY: 20 });
     const solidMovie = path.join(temporary, 'split-solid.mov');
     await renderer.render(split, { ffmpegPath: ffmpegPath, outputPath: solidMovie });
     const solidFirst = command(ffmpegPath, ['-v', 'error', '-i', solidMovie, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgba', 'pipe:1']);
@@ -169,6 +224,18 @@ async function run() {
     const lateSplitVideo = command(ffmpegPath, ['-v', 'error', '-ss', '1.05', '-i', solidMovie, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgba', 'pipe:1']);
     assert.ok(pixel(earlySplitVideo, 0, 160, 90)[2] > 230, 'split video begins from its source offset at its own drop time');
     assert.ok(pixel(lateSplitVideo, 0, 160, 90)[1] > 230, 'split video advances independently after its drop time');
+    const splitSolidHole = pixel(lateSplitVideo, 0, 20, 100);
+    assert.ok(Math.abs(splitSolidHole[0] - 16) < 5 && Math.abs(splitSolidHole[1] - 19) < 5 && splitSolidHole[3] > 250, 'shrunk split source reveals selected solid background');
+    assert.ok(pixel(lateSplitVideo, 0, 60, 110)[0] > 240, 'split image scale and positive X/Y pan are independent of region geometry');
+    const transformedDivider = pixel(lateSplitVideo, 0, 94, 90);
+    assert.ok(transformedDivider[0] > 240 && transformedDivider[1] > 240 && transformedDivider[2] > 240, 'slanted divider remains fixed when adjacent media move or shrink');
+    split.backgroundMode = 'transparent';
+    split.fps = 30;
+    const transparentTransformMovie = path.join(temporary, 'split-transformed-transparent.mov');
+    await renderer.render(split, { ffmpegPath: ffmpegPath, outputPath: transparentTransformMovie });
+    const transparentTransformFrame = command(ffmpegPath, ['-v', 'error', '-ss', '1.05', '-i', transparentTransformMovie, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgba', 'pipe:1']);
+    assert.strictEqual(pixel(transparentTransformFrame, 0, 20, 100)[3], 0, 'split source holes retain alpha against transparent background');
+    assert.strictEqual(pixel(transparentTransformFrame, 0, 160, 30)[3], 0, 'shrunk video leaves alpha above its positive Y offset');
     console.log('Renderer verified: cards/3-way trapezoid, alpha/solid backgrounds, 90/120fps, staggered arrivals, slanted borders, media playback, layering, cancellation, and actionable media errors.');
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
