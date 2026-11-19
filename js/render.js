@@ -4,10 +4,11 @@
 // separate spawn arguments: no shell, command concatenation, or filter escaping.
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const childProcess = require('child_process');
 const model = require('./model');
 
-function activeCards(project) { return project.mode === 'trapezoid' ? project.cards.slice(0, 3) : project.cards; }
+function activeCards(project) { return project.mode === 'trapezoid' ? project.cards.slice(0, 3) : project.mode === 'highlight' ? project.cards.slice(0, 1) : project.cards; }
 
 function failure(code, message, details) {
   const error = new Error(message);
@@ -87,10 +88,40 @@ function validate(project, outputPath) {
     number(split.startAt, '登場開始時刻', 0, project.duration);
     if (split.startAt + 2 * split.interval + split.slideDuration > project.duration + 0.000001) throw new Error('3枚目のスライドが終わるように演出の長さを延ばしてください。');
   }
+  if (project.mode === 'highlight') {
+    const highlight = project.highlight;
+    if (!highlight || typeof highlight !== 'object') throw new Error('画像の縁取りの設定がありません。');
+    number(highlight.x, '縁取り画像のX位置', -2 * project.width, 2 * project.width);
+    number(highlight.y, '縁取り画像のY位置', -2 * project.height, 2 * project.height);
+    number(highlight.width, '縁取り画像の幅', 16, 3840, true);
+    number(highlight.height, '縁取り画像の高さ', 16, 2160, true);
+    number(highlight.rotation, '縁取り画像の回転', -180, 180);
+    number(highlight.radius, '縁取り画像の角丸', 0, 500);
+    if (['rounded', 'rectangle', 'polygon'].indexOf(highlight.shape) === -1) throw new Error('縁取りの形を選び直してください。');
+    if (highlight.shape === 'polygon') {
+      if (!Array.isArray(highlight.points) || highlight.points.length < 3 || highlight.points.length > 12) throw new Error('多角形の頂点は3〜12個にしてください。');
+      highlight.points.forEach(function (point, index) {
+        if (!point || typeof point !== 'object') throw new Error('多角形の頂点' + (index + 1) + 'の位置が不正です。');
+        number(point.x, '多角形の頂点' + (index + 1) + 'のX位置', 0, 1);
+        number(point.y, '多角形の頂点' + (index + 1) + 'のY位置', 0, 1);
+      });
+    }
+    if (!Array.isArray(highlight.layers) || highlight.layers.length > 12) throw new Error('線のレイヤーは0〜12枚にしてください。');
+    highlight.layers.forEach(function (layer, index) {
+      const label = '線のレイヤー' + (index + 1);
+      if (!layer || typeof layer !== 'object') throw new Error(label + 'の設定が不正です。');
+      color(layer.color, label + 'の色');
+      number(layer.width, label + 'の太さ', 0, 80);
+      number(layer.glow, label + 'の光の広がり', 0, 80);
+      number(layer.opacity, label + 'の不透明度', 0, 1);
+      number(layer.offset, label + 'の位置', -80, 120);
+      if (typeof layer.enabled !== 'boolean') throw new Error(label + 'の表示設定が不正です。');
+    });
+  }
   if (typeof outputPath !== 'string' || !path.isAbsolute(outputPath) || path.extname(outputPath).toLowerCase() !== '.mov') throw new Error('書き出し先は絶対パスの .mov ファイルにしてください。');
   activeCards(project).forEach(function (card, index) {
     const label = cardLabel(card, index);
-    if (project.mode !== 'trapezoid') {
+    if (project.mode !== 'trapezoid' && project.mode !== 'highlight') {
       number(card.x, label + 'のX位置', -7680, 15360);
       number(card.y, label + 'のY位置', -4320, 8640);
       number(card.dropAt, label + 'の登場時刻', 0, project.duration);
@@ -229,9 +260,10 @@ function mediaFrame(graph, input, prefix, width, height, project, card, startsAt
   return prefix + 'frame';
 }
 
-function buildArgs(project, outputPath, sources) {
+function buildArgs(project, outputPath, sources, assets) {
   validate(project, outputPath);
   if (project.mode === 'trapezoid') return buildTrapezoidArgs(project, outputPath, sources);
+  if (project.mode === 'highlight') return buildHighlightArgs(project, outputPath, sources, assets);
   const args = ['-hide_banner', '-y', '-nostdin', '-loglevel', 'warning', '-filter_complex_threads', '1'];
   const graph = [];
   const width = project.cardWidth;
@@ -337,18 +369,92 @@ function buildTrapezoidArgs(project, outputPath, sources) {
   return args;
 }
 
+function buildHighlightArgs(project, outputPath, sources, assets) {
+  if (!assets || !assets.borderPath || !assets.maskPath || !fs.existsSync(assets.borderPath) || !fs.existsSync(assets.maskPath)) {
+    throw failure('HIGHLIGHT_ASSETS_REQUIRED', '縁取りの描画データがありません。書き出し処理から実行してください。');
+  }
+  number(assets.width, '縁取りの描画幅', 16, 8192, true);
+  number(assets.height, '縁取りの描画高さ', 16, 8192, true);
+  number(assets.padding, '縁取りの描画余白', 0, 2048, true);
+  const settings = project.highlight;
+  if (assets.width !== settings.width + 2 * assets.padding || assets.height !== settings.height + 2 * assets.padding) throw failure('HIGHLIGHT_ASSETS_INVALID', '縁取りの描画サイズが合いません。書き出しをやり直してください。');
+  const args = ['-hide_banner', '-y', '-nostdin', '-loglevel', 'warning', '-filter_complex_threads', '1'];
+  const graph = [];
+  const fps = project.fps, duration = project.duration;
+  const card = project.cards[0];
+  let input = 0;
+  let frame;
+  if (card.mediaPath) {
+    if (card.mediaType === 'image') args.push('-loop', '1', '-framerate', String(fps));
+    else if (card.mediaOffset) args.push('-ss', String(card.mediaOffset));
+    args.push('-i', card.mediaPath);
+    frame = mediaFrame(graph, input, 'highlight', settings.width, settings.height, project, card, 0, sources && sources[0]);
+    input += 1;
+  } else {
+    graph.push('color=c=0x7546b8:s=' + settings.width + 'x' + settings.height + ':r=' + fps + ':d=' + duration + ',format=rgba[highlightFrame]');
+    frame = 'highlightFrame';
+  }
+  const borderInput = input++;
+  const maskInput = input;
+  args.push('-loop', '1', '-framerate', String(fps), '-i', assets.borderPath, '-loop', '1', '-framerate', String(fps), '-i', assets.maskPath);
+  graph.push('[' + maskInput + ':v]format=rgba,alphaextract[highlightMask]');
+  graph.push('[' + frame + ']split[highlightRGB][highlightAlphaSource]');
+  graph.push('[highlightAlphaSource]alphaextract[highlightAlpha]');
+  graph.push('[highlightAlpha][highlightMask]blend=all_mode=multiply[highlightMaskedAlpha]');
+  graph.push('[highlightRGB][highlightMaskedAlpha]alphamerge[highlightClipped]');
+  graph.push('[highlightClipped]pad=' + assets.width + ':' + assets.height + ':' + assets.padding + ':' + assets.padding + ':color=black@0[highlightPadded]');
+  graph.push('[highlightPadded][' + borderInput + ':v]overlay=0:0:format=auto[highlightDecorated]');
+  let rotated = 'highlightDecorated';
+  if (settings.rotation === 90 || settings.rotation === -90) {
+    graph.push('[highlightDecorated]transpose=' + (settings.rotation === 90 ? 'clock' : 'cclock') + '[highlightRotated]');
+    rotated = 'highlightRotated';
+  } else if (Math.abs(settings.rotation) === 180) {
+    graph.push('[highlightDecorated]hflip,vflip[highlightRotated]');
+    rotated = 'highlightRotated';
+  } else if (settings.rotation !== 0) {
+    const radians = settings.rotation * Math.PI / 180;
+    const cosine = Math.abs(Math.cos(radians)), sine = Math.abs(Math.sin(radians));
+    const outputWidth = Math.max(1, Math.ceil(assets.width * cosine + assets.height * sine - 1e-9));
+    const outputHeight = Math.max(1, Math.ceil(assets.height * cosine + assets.width * sine - 1e-9));
+    graph.push('[highlightDecorated]rotate=a=' + radians + ':ow=' + outputWidth + ':oh=' + outputHeight + ':c=black@0[highlightRotated]');
+    rotated = 'highlightRotated';
+  }
+  const background = project.backgroundMode === 'solid' ? color(project.backgroundColor, '背景の色') : 'black@0';
+  graph.push('color=c=' + background + ':s=' + project.width + 'x' + project.height + ':r=' + fps + ':d=' + duration + ',format=rgba[highlightBackground]');
+  graph.push('[highlightBackground][' + rotated + ']overlay=x=\'' + settings.x + '-overlay_w/2\':y=\'' + settings.y + '-overlay_h/2\':format=auto[highlightOutput]');
+  args.push('-filter_complex', graph.join(';'), '-map', '[highlightOutput]', '-an', '-t', String(duration), '-r', String(fps), '-c:v', 'prores_ks', '-profile:v', '4', '-pix_fmt', 'yuva444p10le', '-alpha_bits', '16', '-vendor', 'apl0', '-metadata:s:v:0', 'alpha_mode=1', '-progress', 'pipe:1', '-nostats', outputPath);
+  return args;
+}
+
+function writeHighlightAssets(project, directory) {
+  const highlight = require('./highlight');
+  const border = highlight.raster(project.highlight, 1);
+  const mask = highlight.mask(project.highlight, 1);
+  const assets = { borderPath: path.join(directory, 'border.png'), maskPath: path.join(directory, 'mask.png'), width: border.width, height: border.height, padding: border.padding };
+  fs.writeFileSync(assets.borderPath, highlight.encodePNG(border));
+  fs.writeFileSync(assets.maskPath, highlight.encodePNG(mask));
+  return assets;
+}
+
 async function render(project, options) {
   options = options || {};
   validate(project, options.outputPath);
   if (options.signal && options.signal.aborted) throw cancelled();
   const sources = await checkMedia(project, options);
-  return new Promise(function (resolve, reject) {
+  let assetDirectory;
+  try {
+    let assets;
+    if (project.mode === 'highlight') {
+      assetDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'card-reveal-highlight-'));
+      assets = writeHighlightAssets(project, assetDirectory);
+    }
+    return await new Promise(function (resolve, reject) {
     let args;
     let temporaryPath;
     try {
       validate(project, options.outputPath);
       temporaryPath = path.join(path.dirname(options.outputPath), '.' + path.basename(options.outputPath) + '.' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + '.mov');
-      args = buildArgs(project, temporaryPath, sources);
+      args = buildArgs(project, temporaryPath, sources, assets);
     } catch (error) { reject(error); return; }
     const ffmpegPath = options.ffmpegPath || 'ffmpeg';
     if (options.signal && options.signal.aborted) { reject(cancelled()); return; }
@@ -389,7 +495,10 @@ async function render(project, options) {
       if (typeof options.onProgress === 'function') options.onProgress(1);
       resolve({ outputPath: options.outputPath });
     });
-  });
+    });
+  } finally {
+    if (assetDirectory) fs.rmSync(assetDirectory, { recursive: true, force: true });
+  }
 }
 
 module.exports = { buildArgs: buildArgs, render: render };

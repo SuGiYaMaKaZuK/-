@@ -169,3 +169,64 @@ test('invalid media size and positions cannot be exported or loaded silently', (
     assert.ok(model.validate(p).some(e=>/素材の(大きさ|X位置|Y位置)/.test(e)),key);
   }
 });
+
+test('highlight mode preserves other cards and works independently of reveal timings', () => {
+  const p=model.createProject();model.resizeCards(p,6);
+  const cards=JSON.stringify(p.cards);
+  model.setMode(p,'highlight');p.duration=.5;
+  assert.deepEqual(model.validate(p),[]);
+  assert.equal(JSON.stringify(p.cards),cards);
+  p.duration=20;model.setMode(p,'cards');
+  assert.equal(JSON.stringify(p.cards),cards);
+  assert.equal(p.highlight.layers.length,3);
+});
+
+test('highlight layers are independent, ordered and bounded without changing material settings', () => {
+  const p=model.createProject();model.setMode(p,'highlight');
+  const originalSource=JSON.stringify(p.cards[0]),first=p.highlight.layers[0];
+  const id=model.addHighlightLayer(p),added=p.highlight.layers.find(l=>l.id===id);
+  added.color='#00ccff';added.glow=12;added.width=2;
+  model.reorderHighlightLayer(p,3,0);
+  assert.equal(p.highlight.layers[0],added);assert.equal(p.highlight.layers[1],first);
+  assert.equal(first.color,'#ffe600');assert.equal(JSON.stringify(p.cards[0]),originalSource);
+  while(p.highlight.layers.length<12)model.addHighlightLayer(p);
+  const snapshot=JSON.stringify(p);
+  assert.throws(()=>model.addHighlightLayer(p),/12/);assert.equal(JSON.stringify(p),snapshot);
+  p.highlight.layers=[];assert.deepEqual(model.validate(p),[]);
+});
+
+test('polygon handles support concavity, add/remove points and reject crossings', () => {
+  const p=model.createProject(),h=p.highlight;
+  h.shape='polygon';h.points=[{x:0,y:0},{x:1,y:0},{x:.6,y:.5},{x:1,y:1},{x:0,y:1}];
+  assert.equal(model.highlightPolygonValid(h.points),true);
+  const before=JSON.stringify(h.points),index=model.addHighlightPoint(h,0);
+  assert.equal(index,1);assert.equal(h.points.length,6);assert.equal(model.highlightPolygonValid(h.points),true);
+  model.removeHighlightPoint(h,index);assert.equal(JSON.stringify(h.points),before);
+  assert.equal(model.highlightPolygonValid([{x:0,y:0},{x:1,y:1},{x:1,y:0},{x:0,y:1}]),false);
+  h.points=[{x:0,y:0},{x:1,y:0},{x:.5,y:1}];
+  assert.throws(()=>model.removeHighlightPoint(h,0),/3個/);
+  h.points[0].x=-.1;assert.equal(model.highlightPolygonValid(h.points),false);
+});
+
+test('legacy projects receive fresh highlight defaults and saved layers survive upgrade', () => {
+  const old=model.createProject();old.version=3;delete old.highlight;
+  old.cards[0].mediaScale=135;model.upgrade(old);
+  assert.equal(old.version,4);assert.equal(old.cards[0].mediaScale,135);
+  old.highlight.shape='polygon';old.highlight.layers[1].color='#aa00ff';old.highlight.rotation=-7;
+  const restored=model.upgrade(JSON.parse(JSON.stringify(old)));
+  assert.deepEqual(restored.highlight,old.highlight);
+  const fresh=model.createProject();assert.notEqual(fresh.highlight.layers[1].color,'#aa00ff');
+});
+
+test('highlight geometry and style validation rejects invalid settings', () => {
+  for(const [key,value] of [['width',0],['rotation',181],['radius',-1],['shape','circle']]) {
+    const p=model.createProject();p.mode='highlight';p.highlight[key]=value;
+    assert.ok(model.validate(p).length,key);
+  }
+  for(const [key,value] of [['width',81],['glow',-1],['opacity',1.1],['offset',121],['color','yellow'],['enabled','yes']]) {
+    const p=model.createProject();p.mode='highlight';p.highlight.layers[0][key]=value;
+    assert.ok(model.validate(p).some(e=>/強調レイヤー/.test(e)),key);
+  }
+  const p=model.createProject();p.width=320;p.height=180;
+  assert.deepEqual(model.validate(p).filter(e=>/強調/.test(e)),[],'inactive highlight position must not block other modes after resizing');
+});

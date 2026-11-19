@@ -236,7 +236,89 @@ async function run() {
     const transparentTransformFrame = command(ffmpegPath, ['-v', 'error', '-ss', '1.05', '-i', transparentTransformMovie, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgba', 'pipe:1']);
     assert.strictEqual(pixel(transparentTransformFrame, 0, 20, 100)[3], 0, 'split source holes retain alpha against transparent background');
     assert.strictEqual(pixel(transparentTransformFrame, 0, 160, 30)[3], 0, 'shrunk video leaves alpha above its positive Y offset');
-    console.log('Renderer verified: cards/3-way trapezoid, alpha/solid backgrounds, 90/120fps, staggered arrivals, slanted borders, media playback, layering, cancellation, and actionable media errors.');
+    function highlightDirectories() { return fs.readdirSync(os.tmpdir()).filter(function (name) { return name.indexOf('card-reveal-highlight-') === 0; }).sort(); }
+    function oneFrame(file, at) { return command(ffmpegPath, ['-v', 'error', '-ss', String(at), '-i', file, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgba', 'pipe:1']); }
+    const beforeHighlightDirectories = highlightDirectories();
+    const highlighted = project(imagePath, 'image');
+    Object.assign(highlighted, { mode: 'highlight', duration: 0.6 });
+    highlighted.cards.push(Object.assign({}, invalid.cards[0], { id: 'unused-highlight-card' }));
+    highlighted.highlight = { x: 160, y: 90, width: 80, height: 60, rotation: 0, shape: 'rounded', radius: 12,
+      points: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }], layers: [] };
+    assert.throws(function () { renderer.buildArgs(highlighted, path.join(temporary, 'no-assets.mov')); }, function (error) { return error.code === 'HIGHLIGHT_ASSETS_REQUIRED'; });
+    const roundedMovie = path.join(temporary, 'highlight-rounded.mov');
+    await renderer.render(highlighted, { ffmpegPath: ffmpegPath, outputPath: roundedMovie });
+    const roundedFrame = oneFrame(roundedMovie, 0.2);
+    assert.ok(pixel(roundedFrame, 0, 160, 90)[0] > 240, 'highlight image is visible immediately without card drop/flip');
+    assert.strictEqual(pixel(roundedFrame, 0, 121, 61)[3], 0, 'rounded highlight masks source corners');
+    assert.strictEqual(pixel(roundedFrame, 0, 115, 90)[3], 0, 'empty layer stack leaves no border');
+    highlighted.highlight.shape = 'rectangle';
+    highlighted.highlight.layers = [
+      { id: 'glow', name: '黄色の光', color: '#ffff00', width: 2, glow: 5, opacity: 1, offset: 5, enabled: true },
+      { id: 'line', name: '緑の線', color: '#00ff00', width: 4, glow: 0, opacity: 1, offset: 5, enabled: true }
+    ];
+    const outlinedMovie = path.join(temporary, 'highlight-layers.mov');
+    await renderer.render(highlighted, { ffmpegPath: ffmpegPath, outputPath: outlinedMovie });
+    const outlinedFrame = oneFrame(outlinedMovie, 0.2);
+    assert.ok(pixel(outlinedFrame, 0, 121, 61)[0] > 240 && pixel(outlinedFrame, 0, 121, 61)[3] > 250, 'rectangle shape keeps its square image corners');
+    const greenOutline = pixel(outlinedFrame, 0, 115, 90);
+    assert.ok(greenOutline[1] > 240 && greenOutline[0] < 15 && greenOutline[3] > 250, 'last enabled outline layer covers an earlier layer in its selected color');
+    const nearGlow = pixel(outlinedFrame, 0, 106, 90), farGlow = pixel(outlinedFrame, 0, 102, 90);
+    assert.ok(farGlow[3] > 0 && farGlow[3] < nearGlow[3] && nearGlow[3] < 250, 'yellow glow fades into transparent pixels beyond the image perimeter');
+    assert.ok(nearGlow[0] > 230 && nearGlow[1] > 230 && nearGlow[2] < 20, 'glow preserves selected yellow RGB at partial alpha');
+    highlighted.highlight.layers.reverse();
+    const reorderedOutlineMovie = path.join(temporary, 'highlight-reordered.mov');
+    await renderer.render(highlighted, { ffmpegPath: ffmpegPath, outputPath: reorderedOutlineMovie });
+    const reorderedOutline = pixel(oneFrame(reorderedOutlineMovie, 0.2), 0, 115, 90);
+    assert.ok(reorderedOutline[0] > 240 && reorderedOutline[1] > 240 && reorderedOutline[2] < 15, 'reordering layers changes the actual exported outline color');
+    highlighted.highlight.layers = [];
+    Object.assign(highlighted.highlight, { shape: 'polygon', x: 100, y: 90, rotation: 30,
+      points: [{ x: 0.5, y: 0 }, { x: 1, y: 0.5 }, { x: 0.5, y: 1 }, { x: 0, y: 0.5 }] });
+    const polygonMovie = path.join(temporary, 'highlight-polygon.mov');
+    await renderer.render(highlighted, { ffmpegPath: ffmpegPath, outputPath: polygonMovie });
+    const polygonFrame = oneFrame(polygonMovie, 0.2);
+    assert.ok(pixel(polygonFrame, 0, 100, 90)[0] > 240 && pixel(polygonFrame, 0, 78, 78)[0] > 230, 'arbitrary rotation and center positioning preserve polygon interior');
+    assert.strictEqual(pixel(polygonFrame, 0, 80, 44)[3], 0, 'rotated polygon clips rectangular source corners');
+    Object.assign(highlighted.highlight, { shape: 'rectangle', x: 210, y: 80, width: 80, height: 40, rotation: 90 });
+    Object.assign(highlighted.cards[0], { mediaPath: patternPath, mediaType: 'image' });
+    const rotatedHighlightMovie = path.join(temporary, 'highlight-clockwise.mov');
+    await renderer.render(highlighted, { ffmpegPath: ffmpegPath, outputPath: rotatedHighlightMovie });
+    const rotatedHighlight = oneFrame(rotatedHighlightMovie, 0.2);
+    assert.ok(pixel(rotatedHighlight, 0, 210, 50)[1] > 230 && pixel(rotatedHighlight, 0, 210, 100)[2] > 230, 'positive 90-degree rotation turns source bands clockwise about the requested image center');
+    assert.strictEqual(pixel(rotatedHighlight, 0, 170, 80)[3], 0, 'rotated group has swapped bounds rather than filling the original frame');
+    Object.assign(highlighted.highlight, { x: 160, y: 90, width: 80, height: 60, rotation: 0 });
+    Object.assign(highlighted.cards[0], { mediaScale: 25, mediaX: 10, mediaY: -8 });
+    const scaledHighlightMovie = path.join(temporary, 'highlight-scaled.mov');
+    await renderer.render(highlighted, { ffmpegPath: ffmpegPath, outputPath: scaledHighlightMovie });
+    const scaledHighlight = oneFrame(scaledHighlightMovie, 0.2);
+    assert.ok(pixel(scaledHighlight, 0, 150, 80)[0] > 240, 'highlight source shrink/pan uses original image instead of a pre-cropped source');
+    const scaledYellow = pixel(scaledHighlight, 0, 188, 80);
+    assert.ok(scaledYellow[0] > 240 && scaledYellow[1] > 240 && scaledYellow[2] < 15, 'highlight source shrink exposes original far-right content');
+    assert.strictEqual(pixel(scaledHighlight, 0, 135, 80)[3], 0, 'highlight source holes remain transparent inside its fixed perimeter');
+    Object.assign(highlighted, { duration: 1.2, backgroundMode: 'solid', backgroundColor: '#10131c' });
+    Object.assign(highlighted.cards[0], { mediaPath: videoPath, mediaType: 'video', mediaOffset: 0.5, mediaScale: 50, mediaX: 10, mediaY: 10 });
+    const videoHighlightMovie = path.join(temporary, 'highlight-video.mov');
+    await renderer.render(highlighted, { ffmpegPath: ffmpegPath, outputPath: videoHighlightMovie });
+    const firstHighlightVideo = oneFrame(videoHighlightMovie, 0), heldHighlightVideo = oneFrame(videoHighlightMovie, 1.15);
+    assert.ok(pixel(firstHighlightVideo, 0, 160, 90)[2] > 230, 'highlight video begins immediately from its selected source offset');
+    assert.ok(pixel(heldHighlightVideo, 0, 160, 90)[1] > 230, 'highlight video advances and holds the last frame after EOF');
+    const highlightHole = pixel(heldHighlightVideo, 0, 122, 62);
+    assert.ok(Math.abs(highlightHole[0] - 16) < 5 && Math.abs(highlightHole[1] - 19) < 5 && highlightHole[3] > 250, 'highlight transform holes reveal the selected solid project background');
+    assert.deepStrictEqual(highlightDirectories(), beforeHighlightDirectories, 'successful highlights remove temporary PNG assets');
+    highlighted.cards[0].mediaPath = '';
+    await assert.rejects(renderer.render(highlighted, { ffmpegPath: path.join(temporary, 'missing-ffmpeg'), outputPath: path.join(temporary, 'highlight-launch-failed.mov') }), function (error) { return error.code === 'FFMPEG_NOT_FOUND'; });
+    assert.deepStrictEqual(highlightDirectories(), beforeHighlightDirectories, 'failed highlight encoder removes temporary PNG assets');
+    Object.assign(highlighted, { width: 1920, height: 1080, fps: 120, duration: 120 });
+    const highlightCancelOutput = path.join(temporary, 'highlight-canceled.mov');
+    fs.writeFileSync(highlightCancelOutput, 'preserve existing highlight');
+    const highlightController = new AbortController();
+    let sawHighlightAssets = false;
+    const highlightAbortTimer = setTimeout(function () { sawHighlightAssets = highlightDirectories().length > beforeHighlightDirectories.length; highlightController.abort(); }, 100);
+    await assert.rejects(renderer.render(highlighted, { ffmpegPath: ffmpegPath, outputPath: highlightCancelOutput, signal: highlightController.signal }), function (error) { return error.code === 'CANCELLED'; });
+    clearTimeout(highlightAbortTimer);
+    assert.ok(sawHighlightAssets, 'cancellation regression reaches the highlight asset/encoder stage');
+    assert.deepStrictEqual(highlightDirectories(), beforeHighlightDirectories, 'cancelled highlight removes temporary PNG assets');
+    assert.strictEqual(fs.readFileSync(highlightCancelOutput, 'utf8'), 'preserve existing highlight');
+    console.log('Renderer verified: cards/trapezoid/highlight, shape masks, outline layers/glow/order, rotation, source transforms/video, alpha/solid backgrounds, 90/120fps, and cleanup on success/failure/cancellation.');
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
