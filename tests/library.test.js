@@ -69,3 +69,8 @@ test('invalid SABU data, duplicate names and failed applies leave existing work 
 test('existing libraries without SABU get an empty asset list without replacing their presets',()=>{
  const state=Lib.create();preset(state,'main');delete state.assets;const raw=JSON.stringify(state),s=storage({[Lib.key]:raw});const upgraded=Lib.load(s);assert.equal(upgraded.assets.length,0);assert.deepEqual(upgraded.presets,state.presets);assert.equal(s.getItem(Lib.key),raw);
 });
+
+test('suggested save names remain unique and valid at the 40-character limit',()=>{
+ assert.equal(Lib.availableName('Name',['Name','Name (2)']),'Name (3)');
+ for(const length of [39,40]){const original='あ'.repeat(length),value=Lib.availableName(original+' コピー',[original]);assert.notEqual(value.trim(),original);assert.ok(value.length<=40);assert.equal(value,value.trim());const state=Lib.create();preset(state,'main',original);assert.doesNotThrow(()=>preset(state,'main',value));}
+});

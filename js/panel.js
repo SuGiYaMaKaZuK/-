@@ -6,7 +6,7 @@
   var selectedLayer=null,selectedPoint=0,polygonEditing=false,highlightCache=null,highlightTimer=null,highlightPending=false;
   var media={},pendingCard=null,canvas=$('preview'),ctx=canvas.getContext('2d');
   var palette=['#7546b8','#157d8d','#ad5c2d','#5374ad'];
-  function status(message,error){$('status-text').textContent=message;$('status').classList.toggle('error',!!error);if($('editor-status')){$('editor-status').textContent=message;$('editor-status').classList.toggle('error',!!error);}}
+  function status(message,error){$('status-text').textContent=message;$('status').classList.toggle('error',!!error);if($('editor-status')){$('editor-status').textContent=message;$('editor-status').classList.toggle('error',!!error);}window.dispatchEvent(new CustomEvent('cardreveal:state'));}
   function defaultRenderNote(){return Bridge.hasHost?'プロジェクトに読み込んだら、タイムラインへドラッグして使えます。':'書き出しはPremiere Proのパネルで行えます。ここでは動きをお試しください。';}
   function reportError(error,friendly){var message=error.message || String(error);$('error-details').hidden=false;$('error-text').textContent=error.technicalDetails || message;status(message?message.slice(0,240):(friendly || '操作を完了できませんでした。「エラーの詳細」を確認してください。'),true);}
   function number(value,fallback){var n=Number(value);return Number.isFinite(n)?n:fallback;}

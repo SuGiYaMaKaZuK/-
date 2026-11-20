@@ -10,6 +10,7 @@
   function clone(value){return JSON.parse(JSON.stringify(value));}
   function id(prefix){return prefix+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);}
   function name(value){value=String(value || '').trim();if(!value || value.length>40)throw new Error('名前を1〜40文字で入力してください。');return value;}
+  function availableName(value,names){var original=String(value || '').trim().slice(0,40).trim() || '新しい演出',label=original,n=2;while(names.indexOf(label)>=0){var suffix=' ('+(n++)+')';label=original.slice(0,40-suffix.length)+suffix;}return label;}
   function group(state,groupId){var value=state.groups.find(function(g){return g.id===groupId;});if(!value)throw new Error('保存先のグループが見つかりません。');return value;}
   function validate(state){
     if(!state || state.version!==1 || !Array.isArray(state.groups) || !state.groups.length || !Array.isArray(state.presets))throw new Error('保存ライブラリを読み込めませんでした。元の保存データは変更していません。');
@@ -91,5 +92,5 @@
     target.mediaPath=asset.mediaPath;target.mediaType=asset.mediaType;target.name=String(asset.sourceName || asset.name || 'SABUの素材').slice(0,100);target.mediaScale=asset.mediaScale;target.mediaX=asset.mediaX*project.width/asset.referenceWidth;target.mediaY=asset.mediaY*project.height/asset.referenceHeight;
     var errors=Model.validate(draft);if(errors.length)throw new Error(errors.join(' / '));var card=project.cards.find(function(c){return c.id===cardId;});['mediaPath','mediaType','name','mediaScale','mediaX','mediaY'].forEach(function(k){card[k]=target[k];});return project;
   }
-  return {key:key,legacyKey:legacyKey,clone:clone,create:create,load:load,save:save,validate:validate,addGroup:addGroup,renameGroup:renameGroup,removeGroup:removeGroup,savePreset:savePreset,editPreset:editPreset,removePreset:removePreset,baseProject:baseProject,validatePlacement:validatePlacement,placementFrom:placementFrom,savePlacement:savePlacement,removePlacement:removePlacement,applyPlacement:applyPlacement};
+  return {key:key,legacyKey:legacyKey,clone:clone,create:create,load:load,save:save,validate:validate,addGroup:addGroup,renameGroup:renameGroup,removeGroup:removeGroup,savePreset:savePreset,editPreset:editPreset,removePreset:removePreset,baseProject:baseProject,validatePlacement:validatePlacement,placementFrom:placementFrom,savePlacement:savePlacement,removePlacement:removePlacement,applyPlacement:applyPlacement,availableName:availableName};
 }));
