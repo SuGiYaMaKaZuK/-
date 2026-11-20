@@ -71,7 +71,7 @@
   function syncMode(){
     var mode=project.mode || 'cards';document.body.dataset.mode=mode;
     document.querySelectorAll('[data-mode-only]').forEach(function(el){el.hidden=el.dataset.modeOnly!==mode;});
-    document.querySelectorAll('[data-mode-value]').forEach(function(button){button.setAttribute('aria-selected',String(button.dataset.modeValue===mode));});
+    document.querySelectorAll('[data-mode-value]').forEach(function(button){var active=button.dataset.modeValue===mode;button.setAttribute('aria-selected',String(active));button.tabIndex=active?0:-1;});
     $('selected-label').textContent=isHighlight()?'強調する素材':(isSplit()?'選択中のパネル':'選択中のカード');
     document.querySelector('#advanced-settings summary').textContent=isSplit() || isHighlight()?'画面サイズ・フレームレート':'画面サイズ・カードの見た目';
     $('export-background-help').textContent=project.backgroundMode==='solid'?'背景色を付けて、そのまま使える動画にします。':'背景が透明なので、映像の上に重ねられます。';
@@ -222,6 +222,15 @@
   document.querySelectorAll('[data-mode-value]').forEach(function(button){button.addEventListener('click',function(){if(renderBusy || button.dataset.modeValue===(project.mode || 'cards'))return;setPlaying(false);project=Model.setMode(project,button.dataset.modeValue) || project;if(isHighlight() || (isSplit() && project.cards.slice(0,3).every(function(c){return c.id!==selected;})))selected=project.cards[0].id;polygonEditing=false;selectedPoint=0;dirty=true;extendDuration();synchronizeMedia();syncSettings();currentTime=isHighlight()?0:Math.min(project.duration,isSplit()?splitSettings().startAt+splitSettings().interval*2+splitSettings().slideDuration:Math.max.apply(null,project.cards.map(function(c){return c.dropAt+project.dropDuration;})));draw();status(isHighlight()?'画像の外周を強調します。枠を選んで色や光を調整できます。':(isSplit()?'台形3分割に切り替えました。左・中央・右の素材を選んでください。':'カードをめくる演出に切り替えました。'));});});
   document.querySelectorAll('[data-split-setting]').forEach(function(input){input.addEventListener('change',function(){if(renderBusy)return;var key=input.dataset.splitSetting,value=input.type==='color'?input.value:number(input.value,splitSettings()[key]);if(input.type!=='color'){if(input.hasAttribute('min'))value=Math.max(Number(input.min),value);if(input.hasAttribute('max'))value=Math.min(Number(input.max),value);}project.trapezoid[key]=value;project.trapezoid.startAt=Math.max(0,Math.min(project.trapezoid.startAt,120-project.trapezoid.interval*2-project.trapezoid.slideDuration));dirty=true;extendDuration();syncSettings();});});
   $('background-mode').addEventListener('change',function(){if(renderBusy)return;project.backgroundMode=this.value;dirty=true;syncSettings();});
+  document.querySelectorAll('[data-mode-value]').forEach(function(button){button.addEventListener('keydown',function(event){
+    if(renderBusy)return;var modes=Array.from(document.querySelectorAll('[data-mode-value]')),index=modes.indexOf(button),next;
+    if(event.key==='ArrowRight')next=(index+1)%modes.length;
+    else if(event.key==='ArrowLeft')next=(index+modes.length-1)%modes.length;
+    else if(event.key==='Home')next=0;
+    else if(event.key==='End')next=modes.length-1;
+    else return;
+    event.preventDefault();modes[next].focus();modes[next].click();
+  });});
   var lookSelection={cards:null,trapezoid:null,highlight:null};
   function fitPreview(){
     var stage=document.querySelector('.preview-stage'),wrap=$('preview-wrap');if(!stage || !wrap)return;

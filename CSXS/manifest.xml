@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ExtensionManifest Version="7.0"
     ExtensionBundleId="com.cardreveal"
-    ExtensionBundleVersion="0.5.0"
+    ExtensionBundleVersion="0.5.1"
     ExtensionBundleName="Card Reveal カード演出"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
     <ExtensionList>
-        <Extension Id="com.cardreveal.panel" Version="0.5.0"/>
+        <Extension Id="com.cardreveal.panel" Version="0.5.1"/>
     </ExtensionList>
     <ExecutionEnvironment>
         <HostList>
