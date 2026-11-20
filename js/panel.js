@@ -22,14 +22,23 @@
   function loadMedia(card,info){
     releaseMedia(card.id);if(!info.url && !info.path)return;
     var video=(info.type || card.mediaType)==='video',el=document.createElement(video?'video':'img');
-    var item={el:el,url:info.url || mediaURL(info.path),path:info.path || '',objectURL:!!info.objectURL,ready:false};media[card.id]=item;
-    el.addEventListener(video?'loadeddata':'load',function(){item.ready=true;draw();renderThumbnails();});
+    var item={el:el,url:info.url || mediaURL(info.path),path:info.path || '',objectURL:!!info.objectURL,ready:false,autoHighlight:!!info.autoHighlight};media[card.id]=item;
+    el.addEventListener(video?'loadeddata':'load',function(){if(media[card.id]!==item)return;item.ready=true;autoFitHighlight(card,item);draw();renderThumbnails();});
     el.addEventListener('error',function(){status('素材が見つからないか、プレビューできない形式です。素材を選び直してください。',true);});
     if(video){el.muted=true;el.preload='auto';el.playsInline=true;el.addEventListener('seeked',draw);}el.src=item.url;
   }
+  function autoFitHighlight(card,item){
+    if(renderBusy || !isHighlight() || card!==project.cards[0] || !item || !item.ready || !item.autoHighlight)return;
+    var sw=item.el.videoWidth || item.el.naturalWidth,sh=item.el.videoHeight || item.el.naturalHeight;if(!sw || !sh)return;
+    var factor=Math.min(project.width*.8/sw,project.height*.8/sh),h=project.highlight;
+    h.width=Math.max(16,Math.round(sw*factor));h.height=Math.max(16,Math.round(sh*factor));
+    card.mediaScale=100;card.mediaX=0;card.mediaY=0;item.autoHighlight=false;dirty=true;
+    syncHighlightControls();syncMediaControls();requestHighlightDraw(false);
+    status('素材のサイズを読み取り、画像全体の外周に枠を合わせました。');
+  }
   function synchronizeMedia(){Object.keys(media).forEach(function(id){if(!cardByID(id))releaseMedia(id);else if((isHighlight()?project.cards.indexOf(cardByID(id))>0:(isSplit() && project.cards.indexOf(cardByID(id))>2)) && media[id].el.tagName==='VIDEO')media[id].el.pause();});activeCards().forEach(function(c){if(c.mediaPath && (!media[c.id] || media[c.id].path!==c.mediaPath))loadMedia(c,{path:c.mediaPath,type:c.mediaType});});}
   function selectCard(id){if(renderBusy)return;selected=id;renderCards();renderEditor();draw();}
-  function applyMedia(card,info){if(renderBusy || !info)return;card.mediaPath=info.path || '';card.mediaType=info.type || 'image';card.name=(info.name || (info.path || '').split(/[\\/]/).pop() || card.name).slice(0,100);loadMedia(card,info);dirty=true;renderCards();renderEditor();draw();status('素材を選びました。プレビューで位置とめくる時刻を調整しましょう。');}
+  function applyMedia(card,info){if(renderBusy || !info)return;card.mediaPath=info.path || '';card.mediaType=info.type || 'image';card.name=(info.name || (info.path || '').split(/[\\/]/).pop() || card.name).slice(0,100);info.autoHighlight=true;loadMedia(card,info);dirty=true;renderCards();renderEditor();draw();status('素材を選びました。プレビューで位置とめくる時刻を調整しましょう。');}
   function pickMedia(id){if(renderBusy)return;var card=cardByID(id);if(!card)return;selectCard(id);if(Bridge.hasHost && Bridge.pickMedia)Bridge.pickMedia().then(function(info){applyMedia(card,info);}).catch(function(e){reportError(e,'素材を選べませんでした。もう一度お試しください。');});else{pendingCard=id;$('media-input').value='';$('media-input').click();}}
   $('media-input').addEventListener('change',function(e){var f=e.target.files[0],card=cardByID(pendingCard);if(!f || !card)return;applyMedia(card,{path:f.path || '',name:f.name,type:f.type.indexOf('video/')===0?'video':'image',url:URL.createObjectURL(f),objectURL:true});});
   function field(card,key,label,step,min){return '<label>'+label+'<input type="number" data-card="'+text(card.id)+'" data-field="'+key+'" aria-label="'+text(card.name)+' '+label+'" step="'+step+'"'+(min!==undefined?' min="'+min+'"':'')+' value="'+Number(card[key].toFixed(4))+'"></label>';}
@@ -84,7 +93,7 @@
     $('source-description').textContent=isHighlight()?'素材は1つ。別モードの設定も保持します。':(isSplit()?'左・中央・右に画像や動画を設定。':'選択して編集。↑ ↓ で順番を変更。');
     $('background-mode').value=project.backgroundMode || 'transparent';$('background-color-field').hidden=project.backgroundMode!=='solid';$('background-badge').textContent=project.backgroundMode==='solid'?'背景に色を付けています':'背景は透明です';
     document.querySelectorAll('[data-split-setting]').forEach(function(input){input.value=splitSettings()[input.dataset.splitSetting];});
-    if(isHighlight())syncHighlightControls();
+    if(isHighlight()){syncHighlightControls();autoFitHighlight(project.cards[0],media[project.cards[0].id]);}
   }
   function syncSettings(){
     syncMode();document.querySelectorAll('[data-setting]').forEach(function(input){var value=project[input.dataset.setting];if(input.dataset.setting==='fps' && !Array.from(input.options).some(function(o){return Number(o.value)===value;})){var option=document.createElement('option');option.value=value;option.textContent=value+' fps';input.appendChild(option);}input.value=value;});
