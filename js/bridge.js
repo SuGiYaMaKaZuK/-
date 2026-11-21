@@ -109,6 +109,10 @@
     return { templatePath: destination, sourceName: path.basename(sourcePath) };
   };
   api.titleContext = async function () { return await host('titleContext'); };
+  api.inspectTitleTemplate = async function (sourcePath) {
+    sourcePath = titlePath(sourcePath);
+    return { path: sourcePath, sourceName: path.basename(sourcePath) };
+  };
   api.insertTitle = async function (record) {
     if (activeTitleInsertion || activeController) throw new Error('ほかの作成・挿入処理が終わってから実行してください。');
     var sourcePath = titlePath(record && record.templatePath), track = record.videoTrack;

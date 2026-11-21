@@ -14,7 +14,7 @@
   function option(select, value, label) { var el = document.createElement('option'); el.value = value; el.textContent = label; select.appendChild(el); }
   function sync() {
     var busy = Panel.isBusy() || inserting, unavailable = !Library.isAvailable();
-    $('register-title').disabled = busy || unavailable;
+    ['register-title','add-title','title-dropzone'].forEach(function(id){$(id).disabled=busy || saving || choosing || unavailable;});
     document.querySelectorAll('[data-insert-title]').forEach(function (button) { button.disabled = busy || unavailable || !Bridge.hasHost; });
     document.querySelectorAll('[data-manage-title]').forEach(function (button) { button.disabled = busy || unavailable; });
     $('pick-title-template').disabled = busy || saving || choosing || !Bridge.hasHost;
@@ -22,14 +22,14 @@
     $('delete-title').disabled = busy || saving || choosing || unavailable;
     ['title-name', 'title-group', 'title-video-track'].forEach(function (id) { $(id).disabled = saving || choosing || busy; });
     $('title-dialog').querySelector('[data-close-dialog]').disabled = saving || choosing;
-    $('save-title').textContent = saving ? '保存中…' : draft && draft.id ? '登録内容を保存' : 'MAINに登録';
+    $('save-title').textContent = saving ? '保存中…' : draft && draft.id ? '登録内容を保存' : 'テロップに登録';
   }
-  async function open(id) {
-    if (Panel.isBusy() || inserting || !Library.isAvailable()) return;
+  async function open(id, incoming, targetGroup) {
+    if (Panel.isBusy() || inserting || choosing || saving || !Library.isAvailable()) return;
     var state = Library.getState(), existing = (state.titles || []).find(function (t) { return t.id === id; });
     if (id && !existing) { status('保存したテロップが見つかりません。', true); return; }
     var token = ++generation;
-    draft = existing ? Lib.clone(existing) : { name: '', groupId: state.activeGroupId, videoTrack: 'auto' };
+    draft = existing ? Lib.clone(existing) : { name: '', groupId: targetGroup || state.activeGroupId, videoTrack: 'auto' };
     baseline = existing ? JSON.stringify(existing) : null; chosen = null; preserved = null;
     $('title-dialog-heading').textContent = existing ? 'テロップの登録設定' : 'いつものテロップを登録';
     $('title-export-help').open = !existing; $('title-name').value = draft.name; $('title-group').textContent = '';
@@ -38,7 +38,7 @@
     if (draft.videoTrack !== 'auto') option($('title-video-track'), String(draft.videoTrack), 'V' + (draft.videoTrack + 1) + '（保存した挿入先）');
     $('title-video-track').value = String(draft.videoTrack);
     $('title-file-name').textContent = existing ? draft.sourceName || '登録済みの.mogrt' : 'ファイルが選ばれていません';
-    $('title-error').textContent = ''; $('delete-title').hidden = !existing;
+    $('title-error').textContent = ''; $('title-drop-error').hidden=true; $('delete-title').hidden = !existing; if(incoming)setChosen(incoming);
     $('title-context-note').textContent = Bridge.hasHost ? '挿入先のシーケンスを確認しています…' : 'ファイルの登録・挿入はPremiere内のパネルで利用できます。';
     if (!$('title-dialog').open) $('title-dialog').showModal(); sync(); $('title-name').focus();
     if (!Bridge.hasHost || typeof Bridge.titleContext !== 'function') return;
@@ -55,17 +55,38 @@
       if (generation === token) $('title-context-note').textContent = 'トラック情報を取得できませんでした。自動で登録し、挿入前にシーケンスを開いてください。';
     }
   }
+  function setChosen(info){
+    if(!draft)return;chosen=info;preserved=null;$('title-file-name').textContent=info.sourceName;
+    if(!$('title-name').value.trim()){var names=Library.getState().presets.concat(Library.getState().titles || []).filter(function(t){return t.groupId===$('title-group').value;}).map(function(t){return t.name;});$('title-name').value=Lib.availableName(info.sourceName.replace(/\.mogrt$/i,''),names);}
+  }
+  function dropError(error,inForm){var value=message(error);if(inForm)$('title-error').textContent=value;else{$('title-drop-error').hidden=false;$('title-drop-error').textContent=value;}status(value,true);}
+  async function dropped(event,inForm){
+    event.preventDefault();event.stopPropagation();event.currentTarget.classList.remove('drop-active');
+    if(saving || choosing || inserting || Panel.isBusy()){dropError(new Error('処理が終わってからファイルをドロップしてください。'),inForm);return;}
+    var group=Library.getState().activeGroupId,token=generation;
+    try{
+      if(!Library.isAvailable())throw new Error('ライブラリを保存できません。保存データを確認してください。');
+      if(!Bridge.hasHost)throw new Error('ファイルの登録はPremiere内のパネルで利用できます。');
+      var path=window.CardTitleDrop.pathFrom(event.dataTransfer);choosing=true;sync();
+      var info=await Bridge.inspectTitleTemplate(path);
+      if(inForm){if(token!==generation || !$('title-dialog').open)return;setChosen(info);$('title-error').textContent='';}
+      else{if(!Library.getState().groups.some(function(g){return g.id===group;}))throw new Error('ドロップ先のグループが変更されています。グループを選んで、もう一度ドロップしてください。');choosing=false;await open(null,info,group);}
+    }catch(error){dropError(error,inForm);}finally{choosing=false;sync();}
+  }
+  function bindDrop(id,inForm){var area=$(id);area.addEventListener('dragover',function(event){event.preventDefault();if(!saving && !choosing && !inserting && !Panel.isBusy())area.classList.add('drop-active');});area.addEventListener('dragleave',function(event){if(!area.contains(event.relatedTarget))area.classList.remove('drop-active');});area.addEventListener('drop',function(event){dropped(event,inForm);});}
+  bindDrop('title-dropzone',false);bindDrop('title-file-drop',true);
+  $('add-title').addEventListener('click',function(){open();});$('title-dropzone').addEventListener('click',function(){open();});
+  function fileTransfer(event){return event.dataTransfer && (event.dataTransfer.files.length || Array.from(event.dataTransfer.types || []).indexOf('Files')>=0);}
+  document.addEventListener('dragover',function(event){if(fileTransfer(event))event.preventDefault();});
+  document.addEventListener('drop',function(event){if(fileTransfer(event)){event.preventDefault();status('.mogrtは「テロップ」のドロップ欄へ入れてください。',true);}});
+  window.addEventListener('dragend',function(){document.querySelectorAll('.drop-active').forEach(function(area){area.classList.remove('drop-active');});});
   $('register-title').addEventListener('click', function () { open(); });
   $('pick-title-template').addEventListener('click', async function () {
     if (!draft || saving || choosing || inserting || Panel.isBusy() || !Bridge.hasHost) return;
     choosing = true; sync(); $('title-error').textContent = '';
     try {
       var selected = await Bridge.pickTitleTemplate(); if (!selected) return;
-      chosen = selected; preserved = null; $('title-file-name').textContent = selected.sourceName;
-      if (!$('title-name').value.trim()) {
-        var names = Library.getState().presets.concat(Library.getState().titles || []).filter(function (t) { return t.groupId === $('title-group').value; }).map(function (t) { return t.name; });
-        $('title-name').value = Lib.availableName(selected.sourceName.replace(/\.mogrt$/i, ''), names);
-      }
+      setChosen(selected);
     } catch (error) { $('title-error').textContent = message(error); }
     finally { choosing = false; sync(); }
   });
@@ -83,8 +104,8 @@
         if (record.id && JSON.stringify((next.titles || []).find(function (t) { return t.id === record.id; })) !== baseline) throw new Error('このテロップの登録は別の画面で更新されています。一度閉じて、登録設定を開き直してください。');
         return Lib.saveTitle(next, record);
       });
-      $('main-search').value = ''; $('main-search').dispatchEvent(new Event('input'));
-      $('title-dialog').close(); status('「' + saved.name + '」をMAINに登録しました。サムネイルから1クリックで挿入できます。');
+      $('title-search').value = ''; $('title-search').dispatchEvent(new Event('input'));
+      $('title-dialog').close(); status('「' + saved.name + '」をテロップに登録しました。サムネイルから1クリックで挿入できます。');
     } catch (error) { $('title-error').textContent = message(error); }
     finally { saving = false; sync(); }
   });
@@ -106,7 +127,7 @@
     } catch (error) { status(message(error), true); }
     finally { inserting = false; lastInsert = Date.now(); window.dispatchEvent(new CustomEvent('cardreveal:title-busy', { detail: { busy: false } })); sync(); }
   }
-  $('saved-gallery').addEventListener('click', function (event) {
+  $('title-gallery').addEventListener('click', function (event) {
     var button = event.target.closest('[data-insert-title]'), settings = event.target.closest('[data-manage-title]');
     if (button && !button.disabled) insert(button.dataset.insertTitle); else if (settings && !settings.disabled) open(settings.dataset.manageTitle);
   });

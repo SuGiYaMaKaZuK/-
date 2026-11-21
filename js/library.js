@@ -17,8 +17,8 @@
     var groups={},presets={};
     state.groups.forEach(function(g){if(!g || typeof g.id!=='string' || !g.id || groups[g.id])throw new Error('グループの保存データが重複しています。');name(g.name);groups[g.id]=true;});
     state.presets.forEach(function(p){if(!p || typeof p.id!=='string' || !p.id || presets[p.id] || !groups[p.groupId] || !p.project || typeof p.project!=='object')throw new Error('演出の保存データを確認してください。元の保存データは変更していません。');name(p.name);presets[p.id]=true;});
-    if(state.assets!==undefined && !Array.isArray(state.assets))throw new Error('SABUの保存データを確認してください。');
-    var assets={};(state.assets || []).forEach(function(asset){validatePlacement(asset);if(typeof asset.id!=='string' || !asset.id || assets[asset.id])throw new Error('SABUの保存データが重複しています。');assets[asset.id]=true;name(asset.name);});
+    if(state.assets!==undefined && !Array.isArray(state.assets))throw new Error('素材と配置の保存データを確認してください。');
+    var assets={};(state.assets || []).forEach(function(asset){validatePlacement(asset);if(typeof asset.id!=='string' || !asset.id || assets[asset.id])throw new Error('素材と配置の保存データが重複しています。');assets[asset.id]=true;name(asset.name);});
     if(state.titles!==undefined && !Array.isArray(state.titles))throw new Error('テロップの保存データを確認してください。');
     var titles={};(state.titles || []).forEach(function(t){validateTitle(t);if(typeof t.id!=='string' || !t.id || titles[t.id] || !groups[t.groupId])throw new Error('テロップの保存先を確認してください。');titles[t.id]=true;name(t.name);});
     if(!groups[state.activeGroupId])throw new Error('選択中のグループが見つかりません。');
@@ -81,17 +81,17 @@
   }
   function savePlacement(state,options){
     var label=name(options.name),source=validatePlacement(options),existing=options.id?(state.assets || []).find(function(p){return p.id===options.id;}):null;
-    if(options.id && !existing)throw new Error('SABUの素材が見つかりません。別の名前で保存してください。');
-    if((state.assets || []).some(function(p){return p.id!==options.id && p.name===label;}))throw new Error('SABUに同じ名前があります。別の名前で保存してください。');
+    if(options.id && !existing)throw new Error('保存した素材が見つかりません。別の名前で保存してください。');
+    if((state.assets || []).some(function(p){return p.id!==options.id && p.name===label;}))throw new Error('素材と配置に同じ名前があります。別の名前で保存してください。');
     var thumbnail=typeof options.thumbnail==='string' && /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(options.thumbnail) && options.thumbnail.length<=300000?options.thumbnail:null;
     var value={id:existing?existing.id:id('asset'),name:label,thumbnail:thumbnail};
     ['mediaPath','mediaType','sourceName','mediaScale','mediaX','mediaY','referenceWidth','referenceHeight','frameWidth','frameHeight'].forEach(function(k){value[k]=source[k];});
     if(!state.assets)state.assets=[];if(existing)state.assets[state.assets.indexOf(existing)]=value;else state.assets.push(value);return value;
   }
-  function removePlacement(state,assetId){if(!(state.assets || []).some(function(a){return a.id===assetId;}))throw new Error('SABUの素材が見つかりません。');state.assets=state.assets.filter(function(a){return a.id!==assetId;});}
+  function removePlacement(state,assetId){if(!(state.assets || []).some(function(a){return a.id===assetId;}))throw new Error('保存した素材が見つかりません。');state.assets=state.assets.filter(function(a){return a.id!==assetId;});}
   function applyPlacement(project,cardId,asset){
     validatePlacement(asset);var draft=Model.upgrade(clone(project)),target=draft.cards.find(function(c){return c.id===cardId;});if(!target)throw new Error('適用先の素材を選んでください。');
-    target.mediaPath=asset.mediaPath;target.mediaType=asset.mediaType;target.name=String(asset.sourceName || asset.name || 'SABUの素材').slice(0,100);target.mediaScale=asset.mediaScale;target.mediaX=asset.mediaX*project.width/asset.referenceWidth;target.mediaY=asset.mediaY*project.height/asset.referenceHeight;
+    target.mediaPath=asset.mediaPath;target.mediaType=asset.mediaType;target.name=String(asset.sourceName || asset.name || '素材と配置の素材').slice(0,100);target.mediaScale=asset.mediaScale;target.mediaX=asset.mediaX*project.width/asset.referenceWidth;target.mediaY=asset.mediaY*project.height/asset.referenceHeight;
     var errors=Model.validate(draft);if(errors.length)throw new Error(errors.join(' / '));var card=project.cards.find(function(c){return c.id===cardId;});['mediaPath','mediaType','name','mediaScale','mediaX','mediaY'].forEach(function(k){card[k]=target[k];});return project;
   }
   function validateTitle(t){if(!t || typeof t.templatePath!=='string' || !/\.mogrt$/i.test(t.templatePath) || !/^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(t.templatePath) || /[\u0000-\u001f]/.test(t.templatePath) || t.templatePath.length>32768)throw new Error('登録する.mogrtファイルを選んでください。');if(t.videoTrack!=='auto' && (!Number.isInteger(t.videoTrack) || t.videoTrack<0 || t.videoTrack>999))throw new Error('挿入先のビデオトラックを選んでください。');return t;}

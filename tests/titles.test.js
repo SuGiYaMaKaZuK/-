@@ -151,3 +151,11 @@ test('CEP rejects malformed completion messages and allows a later intentional r
     await assert.rejects(env.api.insertTitle(record), /確認|シーケンス/); await assert.rejects(env.api.insertTitle(record), /確認|シーケンス/);
   }
 });
+test('inspection of a dropped template validates the real local file without copying or importing it', async t => {
+  const env = bridgeSetup(); t.after(env.cleanup);
+  const result = await env.api.inspectTitleTemplate(env.source);
+  assert.equal(result.path, env.source); assert.equal(result.sourceName, path.basename(env.source));
+  assert.deepEqual(fs.readFileSync(env.source), env.binary); assert.equal(fs.existsSync(env.userData), false); assert.equal(env.calls.length, 0);
+  await assert.rejects(env.api.inspectTitleTemplate('https://example.com/text.mogrt'), /mogrt/);
+  fs.unlinkSync(env.source); await assert.rejects(env.api.inspectTitleTemplate(env.source), /見つからない|読み取れません/);
+});
