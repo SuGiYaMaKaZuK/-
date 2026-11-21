@@ -27,7 +27,7 @@
     if (typeof root !== 'string' || !path.isAbsolute(root)) throw new Error('拡張フォルダーを確認できません。');
     api.hasHost = true;
   } catch (error) { console.error('CEP initialization', error); return; }
-  var activeController = null;
+  var activeController = null, activeTitleInsertion = false;
   function scriptArgument(value) {
     // ExtendScript is ES3; unlike modern JS it treats these Unicode characters
     // as line breaks inside string literals, even when JSON.stringify emits them.
@@ -43,6 +43,8 @@
           if (/^pick/.test(method) && value !== null && typeof value !== 'string') throw new Error('ホストから不正なファイル選択結果が返されました。');
           if (method === 'importRendered' && (!value || value.ok !== true)) throw new Error('ホストから読み込みの完了を確認できませんでした。');
           if (method === 'revealOutput' && (!value || value.ok !== true)) throw new Error('ホストからフォルダーの表示を確認できませんでした。');
+          if (method === 'titleContext' && (!value || value.ok !== true || !Array.isArray(value.videoTracks))) throw new Error('ホストからトラック情報を確認できませんでした。');
+          if (method === 'insertTitle' && (!value || value.ok !== true || value.inserted !== true || typeof value.verified !== 'boolean' || !Number.isInteger(value.videoTrack) || value.videoTrack < 0 || typeof value.startTicks !== 'string' || !/^\d+$/.test(value.startTicks))) throw new Error('ホストから挿入の完了を確認できませんでした。タイムラインを確認してください。');
           resolve(value);
         } catch (error) { reject(new Error('Premiere Pro: ' + (result === 'EvalScript error.' ? 'ホストスクリプトを実行できませんでした。' : error.message))); }
       });
@@ -79,6 +81,41 @@
     return { path: result, type: classify(result), url: nodeURL.pathToFileURL(result).href, name: path.basename(result) };
   };
   api.mediaURL = function (filePath) { return nodeURL.pathToFileURL(filePath).href; };
+  function titlePath(value) {
+    if (typeof value !== 'string' || value.length > 32768 || !path.isAbsolute(value) || /[\u0000-\u001f]/.test(value) || path.extname(value).toLowerCase() !== '.mogrt') throw new Error('.mogrtファイルを選んでください。');
+    var stat; try { stat = fs.statSync(value); } catch (error) { throw new Error('登録した.mogrtが見つからないか、読み取れません。ファイルを選び直してください。'); }
+    if (!stat.isFile() || stat.size === 0 || stat.size > 256 * 1024 * 1024) throw new Error('有効なテロップ用.mogrtファイルを選んでください（256MBまで）。');
+    return value;
+  }
+  api.pickTitleTemplate = async function () {
+    var result, nativeFS = window.cep && window.cep.fs;
+    if (nativeFS && typeof nativeFS.showOpenDialog === 'function') {
+      var selection = nativeFS.showOpenDialog(false, false, 'いつものテロップを保存した.mogrtを選択', '', ['mogrt']);
+      if (!selection || selection.err !== 0 || !Array.isArray(selection.data)) throw new Error('テンプレートの選択画面を開けませんでした。');
+      result = selection.data[0] || null;
+    } else result = await host('pickTitleTemplate');
+    if (!result) return null;
+    return { path: titlePath(result), sourceName: path.basename(result) };
+  };
+  api.preserveTitleTemplate = async function (sourcePath) {
+    sourcePath = titlePath(sourcePath);
+    var raw = window.__adobe_cep__.getSystemPath('userData');
+    var base = /^file:/i.test(raw) ? nodeURL.fileURLToPath(raw) : raw;
+    if (typeof base !== 'string' || !path.isAbsolute(base)) throw new Error('テンプレートの保存先を確認できません。');
+    var folder = path.join(base, 'CardRevealStudio', 'telop-templates');
+    fs.mkdirSync(folder, { recursive: true });
+    var destination = path.join(folder, 'telop-' + Date.now() + '-' + nodeRequire('crypto').randomBytes(8).toString('hex') + '.mogrt');
+    fs.copyFileSync(sourcePath, destination, fs.constants.COPYFILE_EXCL);
+    return { templatePath: destination, sourceName: path.basename(sourcePath) };
+  };
+  api.titleContext = async function () { return await host('titleContext'); };
+  api.insertTitle = async function (record) {
+    if (activeTitleInsertion || activeController) throw new Error('ほかの作成・挿入処理が終わってから実行してください。');
+    var sourcePath = titlePath(record && record.templatePath), track = record.videoTrack;
+    if (track !== 'auto' && (!Number.isInteger(track) || track < 0 || track > 999)) throw new Error('挿入先のビデオトラックを確認してください。');
+    activeTitleInsertion = true;
+    try { return await host('insertTitle', [sourcePath, track]); } finally { activeTitleInsertion = false; }
+  };
   function outputFilePath(outputPath) {
     if (typeof outputPath !== 'string' || !path.isAbsolute(outputPath) || outputPath.indexOf('\u0000') !== -1) throw new Error('書き出した動画の保存先を確認できません。');
     return outputPath;
@@ -109,6 +146,7 @@
   };
   api.render = async function (project, onProgress) {
     if (activeController) throw new Error('書き出し中です。完了またはキャンセルしてからお試しください。');
+    if (activeTitleInsertion) throw new Error('テロップを挿入中です。完了してからお試しください。');
     var errors = window.CardModel.validate(project);
     if (errors.length) throw new Error(errors.join('\n'));
     // The native save dialog and encoder are asynchronous. Keep the settings
