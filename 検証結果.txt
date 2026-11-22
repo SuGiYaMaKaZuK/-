@@ -1,8 +1,8 @@
-Card Reveal Studio v0.10.0 検証結果（タイムライン登録試験）
+Card Reveal Studio v0.10.1 検証結果（通信・選択読み込み修正）
 
 Linux / Node.js 24 / FFmpeg 7.1.5 / Chromium (headless)
 
-npm test：107件すべて成功。
+npm test：112件すべて成功。
 - 既存のカードめくり・3分割・外周強調、動画・素材変形、透明／単色、90/120fpsを実FFmpeg出力で確認。
 - 形状マスク・多角形・レイヤー順・発光・回転・一時ファイルの成功／失敗／キャンセル時の処理。
 - ファイル選択・ExtendScript通信・読み込み・再試行はホストAPIのモックで確認。
@@ -94,3 +94,10 @@ v0.10.0 タイムライン登録の試作：
 - これらはモデル・ファイル処理・UIと模擬ホストのテストであり、実際のPremiereがグラフィックのフォントや位置を保持できた証拠ではありません。
 
 未検証：Premiere Pro 2026 Windowsの実際のドラッグイベント、選択クリップとドラッグ項目の同一性、clone/createSubsequence/exportAsProjectのグラフィック保持、importSequences/overwriteClipの実際のネスト・音声・フォント・位置・キーフレーム再現。ユーザーの空テストシーケンスでの確認が必要。
+
+v0.10.1 通信・選択読み込み修正：
+- tests/connection.test.js：実際のbridge.jsから同梱timeline-host.jsxを実行して選択情報を検証。選択用のFile/$.evalFile検索を使わない。Node／ファイル初期化失敗時も独立probeが動く。
+- 無応答の10秒タイムアウト、待機解除、後着コールバック無視、通信開始例外、空応答、実行エラー、不正JSON、同梱ファイル欠落を再現。
+- node tests/connection-ui-smoke.cjs：実際のパネル・Bridge・同梱JSXを通して読み込み・レビュー、通信確認、待機表示・解除・後着応答無視、エラー表示、初期化失敗、診断ダウンロード、幅384pxを確認。Premiere DOMのみ模擬。
+- 書き込み・挿入処理にタイムアウトによる排他解除を導入していない。
+- 自動テストの通過は利用者の実機での問題解消の証明ではありません。実機の通信結果とエラー文を基に確認が必要です。

@@ -6,13 +6,15 @@
   function enabled() { return $('timeline-trial-enabled').checked; }
   function log(value) { value.at = new Date().toISOString(); records.push(value); if (records.length > 40) records.shift(); }
   function status(value, error) { $('timeline-trial-state').textContent = value; $('timeline-trial-state').classList.toggle('error', !!error); $('status-text').textContent = value; $('status-text').title = value; $('status').classList.toggle('error', !!error); }
-  function errorText(error) { if (error.name === 'QuotaExceededError' || error.code === 22) return '保存容量がいっぱいです。保管したファイルは保持しています。不要な保存データを整理して、再度登録してください。'; return error.message || String(error); }
+  function errorText(error) { if (error.name === 'QuotaExceededError' || error.code === 22) return '保存容量がいっぱいです。保管したファイルは保持しています。不要な保存データを整理して、再度登録してください。'; return (error.message || String(error)) + (typeof error.code === 'string' && /^CEP_/.test(error.code) ? '（' + error.code + '）' : ''); }
   function phase(value) { busy = value; window.dispatchEvent(new CustomEvent('cardreveal:title-busy', { detail: { busy: value, owner: 'timeline-trial' } })); sync(); }
   function sync() {
     var locked = busy || otherBusy || Panel.isBusy(), available = Library.isAvailable();
     $('timeline-trial-enabled').disabled = locked || !Bridge.hasHost;
     $('timeline-trial-selection').disabled = locked || !enabled() || !Bridge.hasHost || !available;
     $('timeline-trial-report').disabled = locked;
+    $('timeline-trial-check').disabled = locked;
+    document.querySelector('.timeline-trial-controls').setAttribute('aria-busy', busy ? 'true' : 'false');
     document.querySelector('.timeline-trial-controls').classList.toggle('trial-enabled', enabled());
     $('title-dropzone').classList.toggle('trial-target', enabled());
     $('title-dropzone').querySelector('strong').textContent = enabled() ? '選択中のテロップをここへドラッグ（試験）' : '.mogrtファイルをここにドロップ';
@@ -50,17 +52,32 @@
   }
   async function read(origin) {
     if (busy || otherBusy || Panel.isBusy() || !enabled() || !Bridge.hasHost || !Library.isAvailable() || document.querySelector('dialog[open]')) return;
-    var group = Library.getState().activeGroupId; phase(true); log({ phase: 'selection-start', origin: origin });
+    var group = Library.getState().activeGroupId; phase(true); log({ phase: 'selection-start', origin: origin }); status('選択中のクリップを読み込んでいます…（最大10秒）');
     try {
       var value = await Bridge.readTimelineCandidate(); Model.validateCandidate(value);
       if (!Library.getState().groups.some(function (g) { return g.id === group; })) throw new Error('対象グループが変更されています。選び直してください。');
       last = { phase: 'selection', ok: true, candidate: Lib.clone(value), origin: origin }; log({ phase: 'selection', ok: true, clipName: value.clipName }); show(value, null, group, origin);
       status('選択クリップの情報を読み込みました。内容を確認して試験登録してください。');
-    } catch (error) { last = { phase: 'selection', ok: false, stage: error.stage || null, error: errorText(error) }; log(last); status(last.error, true); }
+    } catch (error) { last = { phase: 'selection', ok: false, stage: error.stage || null, code: error.code || null, error: errorText(error) }; log(last); status(last.error, true); }
     finally { phase(false); }
   }
   $('timeline-trial-enabled').addEventListener('change', function () { log({ phase: 'mode', enabled: enabled() }); window.dispatchEvent(new CustomEvent('cardreveal:timeline-trial-mode')); sync(); });
   $('timeline-trial-selection').addEventListener('click', function () { read('selection-button'); });
+  $('timeline-trial-check').addEventListener('click', async function () {
+    if (busy || otherBusy || Panel.isBusy()) return;
+    phase(true); status('Premiereとの接続を確認しています…（最大10秒）'); log({ phase: 'connection-start' });
+    try {
+      if (!Bridge.testTimelineConnection) throw new Error('通信機能が読み込まれていません。ZIPをすべて展開してInstall.cmdで更新してください。');
+      var value = await Bridge.testTimelineConnection(), local = Bridge.getHostStatus ? Bridge.getHostStatus() : null;
+      last = { phase: 'connection', ok: true, result: value, environment: local }; log({ phase: 'connection', ok: true, result: value });
+      var text = 'Premiere ' + value.appVersion + ' との通信は正常です。';
+      if (local && !local.ready) text += local.initializationError;
+      else if (!Library.isAvailable()) text += '保存済みデータを読み込めないため登録を停止しています。ライブラリ上部のエラーを確認してください。';
+      else text += !value.hasProject ? 'プロジェクトを開いてください。' : !value.hasSequence ? 'タイムラインのシーケンスを開いてください。' : value.selectionCount !== 1 ? '現在の選択は' + value.selectionCount + '件です。テロップのビデオクリップを1つだけ選択してください。' : 'クリップが1件選択されています。' + (enabled() ? '' : '「タイムライン登録を試す」をONにして、') + '「選択中のクリップを読み込む」を押してください。';
+      status(text, !!(local && !local.ready));
+    } catch (error) { last = { phase: 'connection', ok: false, code: error.code || null, stage: error.stage || null, error: errorText(error) }; log(last); status(last.error, true); }
+    finally { phase(false); }
+  });
   var area = $('title-dropzone');
   area.addEventListener('click', function (event) { if (!enabled()) return; event.preventDefault(); event.stopImmediatePropagation(); read('zone-click'); }, true);
   ['dragenter', 'dragover', 'drop'].forEach(function (type) { area.addEventListener(type, function (event) {
@@ -109,7 +126,7 @@
   });
   $('timeline-trial-report').addEventListener('click', async function () {
     if (busy || otherBusy || Panel.isBusy()) return;
-    var report = { format: 'card-reveal-timeline-trial-v1', createdAt: new Date().toISOString(), enabled: enabled(), hostAvailable: !!Bridge.hasHost, nativeDropIdentityVerified: false, last: last, events: records.slice() };
+    var report = { format: 'card-reveal-timeline-trial-v1', createdAt: new Date().toISOString(), enabled: enabled(), hostAvailable: !!Bridge.hasHost, environment: Bridge.getHostStatus ? Bridge.getHostStatus() : null, nativeDropIdentityVerified: false, last: last, events: records.slice() };
     try {
       if (Bridge.hasHost && Bridge.saveTimelineTrialReport) { if (await Bridge.saveTimelineTrialReport(report) === null) return; }
       else { var url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' })), link = document.createElement('a'); link.href = url; link.download = 'timeline-drag-diagnostic.json'; link.click(); setTimeout(function () { URL.revokeObjectURL(url); }, 2000); }
@@ -119,5 +136,7 @@
   window.addEventListener('cardreveal:title-busy', function (event) { if (event.detail.owner !== 'timeline-trial') otherBusy = !!event.detail.busy; sync(); });
   window.addEventListener('cardreveal:timeline-trial-insert', function (event) { last = Object.assign({ phase: 'insert' }, event.detail); log(last); });
   window.addEventListener('cardreveal:busy', sync); window.addEventListener('cardreveal:library-changed', sync);
-  window.CardTimelineTrialPanel = { isEnabled: enabled }; sync(); window.dispatchEvent(new CustomEvent('cardreveal:timeline-trial-mode'));
+  window.CardTimelineTrialPanel = { isEnabled: enabled }; sync();
+  if (Bridge.getHostStatus && !Bridge.hasHost) status(Bridge.getHostStatus().initializationError || 'Premiereとの接続を確認してください。', true);
+  window.dispatchEvent(new CustomEvent('cardreveal:timeline-trial-mode'));
 }());

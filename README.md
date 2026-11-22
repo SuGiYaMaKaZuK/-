@@ -1,10 +1,10 @@
-# Card Reveal Studio v0.10.0（タイムライン登録の試験版）
+# Card Reveal Studio v0.10.1（通信・選択読み込みの修正版）
 
 Premiere Pro 2026（26.x）・Windows向けの開発版です。カードめくり、台形3分割、画像の外周強調を編集して保存できます。いつものテロップの位置・大きさ・フォントは、.mogrtで登録して1クリックで挿入できます。
 
 ## ダウンロードと導入
 
-1. [導入用ZIPをダウンロード](https://github.com/SuGiYaMaKaZuK/-/raw/refs/heads/main/CardReveal-v0.10.0.zip)します。
+1. [導入用ZIPをダウンロード](https://github.com/SuGiYaMaKaZuK/-/raw/refs/heads/main/CardReveal-v0.10.1.zip)します。
 2. Premiere Proを終了し、ZIPを右クリックして **すべて展開** します。
 3. 展開したフォルダーの **Install.cmd** を実行します。管理者権限は不要です。
 4. 初回は描画用FFmpegを取得します（約30MB）。完了後にPremiereを起動します。
@@ -23,6 +23,25 @@ Premiere Pro 2026（26.x）・Windows向けの開発版です。カードめく�
 - **上部の「素材と配置」：** 以前のSABUの画像・動画と大きさ・X/Yを開きます。全グループ共通です。
 
 以前のMAINに混在していた演出とテロップは、それぞれの欄に分けて表示します。保存済みデータや.mogrtの保管コピーは移動・削除しません。画像は実際のパネルにサンプルを保存した見本です。テロップのファイル処理とホスト通信はモックを用いています。
+
+## ドラッグも読み込みボタンも進まない場合（v0.10.1）
+
+「選択中のクリップを読み込む」の開始・失敗を画面に表示し、応答がない場合は10秒で待機を終了します。遅れて届いた古い応答で登録画面を開くことはありません。選択読み込みは同梱スクリプトを直接送信する方式へ変更し、ExtendScript側でファイルを再検索する処理を省きました。
+
+1. Premiereを終了し、新しいZIPをすべて展開して **Install.cmd** で更新します。再起動後、パネル上部が **v0.10.1** になっていることを確認してください。
+2. テロップ欄の **接続を確認** を押します。試験モードがOFFでも使えます。
+3. **通信は正常** と出た場合は、タイムラインでテロップのビデオクリップを1つ選択し、試験モードをONにして **選択中のクリップを読み込む** を押します。
+4. 進まなければ、試験欄に出た文章・エラーコードを控えるか、**診断を保存** でJSONを端末に保存してください。診断を自動送信することはありません。
+
+- `CEP_TIMEOUT`：Premiereから10秒以内に返事が届いていません。Premiere側のダイアログを閉じてから再度確認してください。
+- `CEP_UNAVAILABLE`：この画面からPremiereへの接続を検出できません。Premiereのエクステンションとして開いているか確認してください。
+- `CEP_SCRIPT_MISSING`：選択読み込み用ファイルが見つからないか、読み取れません。ZIPをすべて展開し、Install.cmdで更新してください。
+- `CEP_SCRIPT_ERROR`／`CEP_EMPTY_RESPONSE`／`CEP_INVALID_RESPONSE`／`CEP_DISPATCH_ERROR`：実行失敗・空または不正な応答・通信開始失敗を区別して表示します。
+- Node.jsや拡張フォルダーの初期化に失敗した場合も画面に理由を表示します。接続確認はこれらのファイル機能と独立しています。
+
+![接続確認の操作画面](https://github.com/SuGiYaMaKaZuK/-/raw/refs/heads/main/docs/connection-check-preview.png)
+
+画面・通信処理・同梱の選択スクリプトを通して、応答の途絶・遅延・各種エラーと操作復帰を検証しました。PremiereのネイティブAPIは模擬しています。**今回の利用環境で動かない原因はまだ特定できておらず、WindowsのPremiere実機では未検証です。** ドラッグしたクリップ自体の自動識別は引き続き行いません。
 
 ## タイムラインからの登録を試す（v0.10.0）
 
@@ -192,7 +211,7 @@ FFmpegは同梱せず、[固定リリースb6.1.1](https://github.com/eugeneware
 
 検証内容は `検証結果.txt` を参照してください。**WindowsインストーラーとPremiere Pro 2026実機内の動作は未検証です。** Adobe Marketplaceの署名済み製品ではありません。
 
-開発用の確認はNode.js 18以降・FFmpeg・ffprobeで `npm test`、Playwright・Chromiumを用意して `node tests/ui-smoke.cjs`、`node tests/titles-ui-smoke.cjs`、`node tests/editing-ui-smoke.cjs`、`node tests/telop-layout-ui-smoke.cjs`、`node tests/timeline-trial-ui-smoke.cjs` を実行します。パネル本体へのnpmパッケージ導入は不要です。
+開発用の確認はNode.js 18以降・FFmpeg・ffprobeで `npm test`、Playwright・Chromiumを用意して `node tests/ui-smoke.cjs`、`node tests/titles-ui-smoke.cjs`、`node tests/editing-ui-smoke.cjs`、`node tests/telop-layout-ui-smoke.cjs`、`node tests/timeline-trial-ui-smoke.cjs`、`node tests/connection-ui-smoke.cjs` を実行します。パネル本体へのnpmパッケージ導入は不要です。
 
 ## v0.6.0の変更
 
@@ -217,3 +236,7 @@ MAIN・SABUの検索、ワンクリック更新、保存状態の表示、保存
 ## v0.10.0の変更
 
 タイムライン登録を調べる試験モードを追加しました。ドラッグをきっかけに選択中のビデオクリップを読み、対象を確認してから一時シーケンス経由でプロジェクト形式へ保管します。空のテストシーケンスへのネスト挿入、段階別の失敗処理、ローカル診断JSONに対応しています。ドラッグ項目自体の識別やPremiere実機での見た目の保持を確認した版ではありません。
+
+## v0.10.1の変更
+
+選択読み込みの開始・通信エラー・初期化失敗を画面に表示し、読み取り専用の通信は10秒で待機を終了します。独立した接続確認、選択スクリプトの直接送信、遅い古い応答の無視、診断への環境・通信状態の追加に対応しました。実機の成功確認を伴う修正ではありません。

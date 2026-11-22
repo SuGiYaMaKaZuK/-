@@ -6,6 +6,8 @@ const candidate = { projectId: 'project', sequenceId: 'sequence', sequenceName: 
 const template = { sequenceId: 'captured-sequence', width: 1920, height: 1080, timebase: '8467200000', durationTicks: '1016064000000', sourceName: '字幕' };
 function setup(options = {}) {
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'timeline-bridge-')), root = path.join(folder, '拡張 100%20'), userData = path.join(folder, '利用者 "字幕"'), outputs = [], calls = [], queue = [];
+  fs.mkdirSync(path.join(root, 'js'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'js/timeline-host.jsx'), '// Unit fixture: use the supplied native API below.');
   const host = Object.assign({
     trialSelection: () => JSON.stringify({ ok: true, candidate }),
     trialCapture: (value, destination) => { calls.push(['capture', value, destination]); fs.writeFileSync(destination, options.emptyFile ? '' : 'native-project-binary'); outputs.push(destination); if (options.captureFailure) return JSON.stringify({ ok: false, stage: 'export', error: '書き出しを確認できません' }); return JSON.stringify({ ok: true, template, warnings: [] }); },
@@ -24,7 +26,7 @@ function setup(options = {}) {
       if (options.defer && script.includes('CardTimelineTrial.' + options.defer + '(')) queue.push(run); else run();
     }
   } };
-  vm.runInNewContext(bridgeCode, { window, AbortController, console });
+  vm.runInNewContext(bridgeCode, { window, AbortController, console, setTimeout, clearTimeout });
   return { api: window.CardBridge, folder, root, userData, outputs, calls, queue, cleanup: () => fs.rmSync(folder, { recursive: true, force: true }) };
 }
 test('trial bridge reads candidates without allocating files and preserves projects in unique user-data folders', async t => {

@@ -1,6 +1,37 @@
 (function () {
   'use strict';
   var api = window.CardBridge = { hasHost: false };
+  var connection = { version: '0.10.1', cepAvailable: !!(window.__adobe_cep__ && typeof window.__adobe_cep__.evalScript === 'function'), nodeAvailable: false, ready: false, initializationError: null, lastRequest: null }, requestId = 0;
+  api.getHostStatus = function () { return JSON.parse(JSON.stringify(connection)); };
+  function communicationError(message, code, stage) { var error = new Error(message); error.code = code; error.stage = stage; return error; }
+  // Only read-only calls may time out and release the UI. A delayed write must
+  // never allow another insertion/capture to start while Premiere is still busy.
+  function readOnlyScript(script, method) {
+    return new Promise(function (resolve, reject) {
+      var id = ++requestId, started = Date.now(), settled = false, timer;
+      function finish(error, value) {
+        if (settled) return; settled = true; if (timer) clearTimeout(timer);
+        if (id === requestId) connection.lastRequest = { method: method, state: error ? 'error' : 'complete', code: error ? error.code || 'HOST_ERROR' : null, stage: error ? error.stage || 'communication' : null, elapsedMs: Date.now() - started };
+        if (error) reject(error); else resolve(value);
+      }
+      connection.lastRequest = { method: method, state: 'waiting', elapsedMs: 0 };
+      if (!connection.cepAvailable) { finish(communicationError('Premiereとの接続がありません。ブラウザーではなく、Premiereの「ウィンドウ → エクステンション」からパネルを開いてください。', 'CEP_UNAVAILABLE', 'initialization')); return; }
+      timer = setTimeout(function () { finish(communicationError('Premiereから10秒以内に応答がありませんでした。Premiere側のダイアログを閉じて、もう一度読み込んでください。「接続を確認」で通信状況を表示できます。', 'CEP_TIMEOUT', 'communication')); }, 10000);
+      try { window.__adobe_cep__.evalScript(script, function (result) {
+        if (result === 'EvalScript error.' || result === 'EvalScript error') finish(communicationError('Premiere内のスクリプトを実行できませんでした。「接続を確認」の結果と、このエラーをお知らせください。', 'CEP_SCRIPT_ERROR', 'execution'));
+        else if (typeof result !== 'string' || !result.trim()) finish(communicationError('Premiereから空の応答が返されました。「接続を確認」をお試しください。', 'CEP_EMPTY_RESPONSE', 'response'));
+        else finish(null, result);
+      }); } catch (error) { finish(communicationError('Premiereへの通信を開始できませんでした。' + (error.message || String(error)), 'CEP_DISPATCH_ERROR', 'dispatch')); }
+    });
+  }
+  api.testTimelineConnection = async function () {
+    // No JSX file, Node.js or JSON object is required on the Premiere side.
+    var script = '(function(){function q(v){return "\\\""+String(v).replace(/\\\\/g,"\\\\\\\\").replace(/"/g,"\\\\\\\"").replace(/[\\x00-\\x1f]/g,function(c){return "\\\\u"+("0000"+c.charCodeAt(0).toString(16)).slice(-4);})+"\\\"";}try{var p=app.project,s=p&&p.activeSequence,n=s?s.getSelection().length:0;return "{\\\"ok\\\":true,\\\"appVersion\\\":"+q(app.version)+",\\\"hasProject\\\":"+!!p+",\\\"hasSequence\\\":"+!!s+",\\\"selectionCount\\\":"+n+"}";}catch(e){return "{\\\"ok\\\":false,\\\"error\\\":"+q(e.message||e)+"}";}}())';
+    var raw = await readOnlyScript(script, 'connection'), result;
+    try { result = JSON.parse(raw); } catch (error) { throw communicationError('接続確認に不正な応答が返されました。', 'CEP_INVALID_RESPONSE', 'response'); }
+    if (!result || result.ok !== true || typeof result.appVersion !== 'string' || typeof result.hasProject !== 'boolean' || typeof result.hasSequence !== 'boolean' || !Number.isInteger(result.selectionCount) || result.selectionCount < 0) throw communicationError(result && result.error ? 'Premiere: ' + result.error : '接続確認の結果を読み取れませんでした。', 'CEP_PROBE_ERROR', 'probe');
+    return result;
+  };
   api.sampleProject = async function () {
     var project = window.CardModel.createProject();
     var examples = [
@@ -16,7 +47,8 @@
     return project;
   };
   var nodeRequire = window.cep_node && window.cep_node.require ? window.cep_node.require : (typeof require === 'function' ? require : null);
-  if (!window.__adobe_cep__ || !nodeRequire) return;
+  connection.nodeAvailable = !!nodeRequire;
+  if (!connection.cepAvailable || !nodeRequire) { connection.initializationError = connection.cepAvailable ? 'Premiereは検出しましたが、ファイル機能（Node.js）が使えません。ZIPを展開してInstall.cmdで更新し、Premiereを再起動してください。' : 'Premiereとの接続がありません。Premiere内のエクステンションとして開いてください。'; return; }
   var fs, path, nodeURL, root, nodeProcess;
   try {
     fs = nodeRequire('fs'); path = nodeRequire('path'); nodeURL = nodeRequire('url'); nodeProcess = nodeRequire('process');
@@ -25,8 +57,8 @@
     // a real folder named "100%" or "%20" is a valid Windows folder name.
     root = /^file:/i.test(raw) ? nodeURL.fileURLToPath(raw) : raw;
     if (typeof root !== 'string' || !path.isAbsolute(root)) throw new Error('拡張フォルダーを確認できません。');
-    api.hasHost = true;
-  } catch (error) { console.error('CEP initialization', error); return; }
+    api.hasHost = true; connection.ready = true;
+  } catch (error) { connection.initializationError = 'Premiereのファイル機能を初期化できませんでした。' + (error.message || String(error)); console.error('CEP initialization', error); return; }
   var activeController = null, activeTitleInsertion = false;
   function scriptArgument(value) {
     // ExtendScript is ES3; unlike modern JS it treats these Unicode characters
@@ -37,7 +69,15 @@
     return new Promise(function (resolve, reject) {
       var trial = /^(trialSelection|trialCapture|trialInsert)$/.test(method);
       var script = '$.evalFile(new File(' + scriptArgument(path.join(root, 'js', trial ? 'timeline-host.jsx' : 'host.jsx')) + ')); ' + (trial ? 'CardTimelineTrial.' : 'CardReveal.') + method + '(' + (args || []).map(scriptArgument).join(',') + ');';
-      window.__adobe_cep__.evalScript(script, function (result) {
+      var invoke = function (callback) { window.__adobe_cep__.evalScript(script, callback); };
+      if (method === 'trialSelection') {
+        var source; try { source = fs.readFileSync(path.join(root, 'js', 'timeline-host.jsx'), 'utf8').replace(/^\uFEFF/, ''); } catch (error) { throw communicationError('選択読み込み用のファイルが見つからないか、読み取れません。ZIPをすべて展開し、Install.cmdで更新してください。', 'CEP_SCRIPT_MISSING', 'load'); }
+        // Send the bundled, verified source directly; this avoids a second
+        // filesystem lookup through ExtendScript's File/$.evalFile.
+        script = '(function(){\n' + source + '\nreturn CardTimelineTrial.trialSelection();\n}())';
+        invoke = function (callback) { readOnlyScript(script, method).then(callback, reject); };
+      }
+      invoke(function (result) {
         try {
           var value = JSON.parse(result);
           if (value && value.ok === false) { var failure = new Error(value.error || 'Premiere Proとの通信に失敗しました。'); failure.stage=value.stage; throw failure; }
@@ -50,7 +90,7 @@
           if (method === 'trialCapture') { if (!value || value.ok !== true || (!Array.isArray(value.warnings) || !value.warnings.every(function(w){return typeof w==='string';}))) throw new Error('試験テロップの保管結果を確認できません。'); window.CardTimelineModel.validateTemplate(value.template); }
           if (method === 'trialInsert' && (!value || value.ok !== true || value.inserted !== true || typeof value.verified !== 'boolean' || !Number.isInteger(value.videoTrack) || value.videoTrack < 0 || !Number.isInteger(value.audioAdded) || value.audioAdded < 0 || typeof value.startTicks !== 'string' || !/^\d+$/.test(value.startTicks))) throw new Error('試験挿入の結果を確認できません。再度押す前にタイムラインを確認してください。');
           resolve(value);
-        } catch (error) { var failure = new Error('Premiere Pro: ' + (result === 'EvalScript error.' ? 'ホストスクリプトを実行できませんでした。' : error.message)); if(error.stage)failure.stage=error.stage; reject(failure); }
+        } catch (error) { var failure = new Error('Premiere Pro: ' + (result === 'EvalScript error.' ? 'ホストスクリプトを実行できませんでした。' : error.message)); if(error.stage)failure.stage=error.stage; else if(method==='trialSelection'){failure.stage='response';failure.code='CEP_INVALID_RESPONSE';} reject(failure); }
       });
     });
   }
