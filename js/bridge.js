@@ -35,18 +35,22 @@
   }
   function host(method, args) {
     return new Promise(function (resolve, reject) {
-      var script = '$.evalFile(new File(' + scriptArgument(path.join(root, 'js', 'host.jsx')) + ')); CardReveal.' + method + '(' + (args || []).map(scriptArgument).join(',') + ');';
+      var trial = /^(trialSelection|trialCapture|trialInsert)$/.test(method);
+      var script = '$.evalFile(new File(' + scriptArgument(path.join(root, 'js', trial ? 'timeline-host.jsx' : 'host.jsx')) + ')); ' + (trial ? 'CardTimelineTrial.' : 'CardReveal.') + method + '(' + (args || []).map(scriptArgument).join(',') + ');';
       window.__adobe_cep__.evalScript(script, function (result) {
         try {
           var value = JSON.parse(result);
-          if (value && value.ok === false) throw new Error(value.error || 'Premiere Proとの通信に失敗しました。');
+          if (value && value.ok === false) { var failure = new Error(value.error || 'Premiere Proとの通信に失敗しました。'); failure.stage=value.stage; throw failure; }
           if (/^pick/.test(method) && value !== null && typeof value !== 'string') throw new Error('ホストから不正なファイル選択結果が返されました。');
           if (method === 'importRendered' && (!value || value.ok !== true)) throw new Error('ホストから読み込みの完了を確認できませんでした。');
           if (method === 'revealOutput' && (!value || value.ok !== true)) throw new Error('ホストからフォルダーの表示を確認できませんでした。');
           if (method === 'titleContext' && (!value || value.ok !== true || !Array.isArray(value.videoTracks))) throw new Error('ホストからトラック情報を確認できませんでした。');
           if (method === 'insertTitle' && (!value || value.ok !== true || value.inserted !== true || typeof value.verified !== 'boolean' || !Number.isInteger(value.videoTrack) || value.videoTrack < 0 || typeof value.startTicks !== 'string' || !/^\d+$/.test(value.startTicks))) throw new Error('ホストから挿入の完了を確認できませんでした。タイムラインを確認してください。');
+          if (method === 'trialSelection') { if (!value || value.ok !== true) throw new Error('選択クリップを確認できません。'); window.CardTimelineModel.validateCandidate(value.candidate); }
+          if (method === 'trialCapture') { if (!value || value.ok !== true || (!Array.isArray(value.warnings) || !value.warnings.every(function(w){return typeof w==='string';}))) throw new Error('試験テロップの保管結果を確認できません。'); window.CardTimelineModel.validateTemplate(value.template); }
+          if (method === 'trialInsert' && (!value || value.ok !== true || value.inserted !== true || typeof value.verified !== 'boolean' || !Number.isInteger(value.videoTrack) || value.videoTrack < 0 || !Number.isInteger(value.audioAdded) || value.audioAdded < 0 || typeof value.startTicks !== 'string' || !/^\d+$/.test(value.startTicks))) throw new Error('試験挿入の結果を確認できません。再度押す前にタイムラインを確認してください。');
           resolve(value);
-        } catch (error) { reject(new Error('Premiere Pro: ' + (result === 'EvalScript error.' ? 'ホストスクリプトを実行できませんでした。' : error.message))); }
+        } catch (error) { var failure = new Error('Premiere Pro: ' + (result === 'EvalScript error.' ? 'ホストスクリプトを実行できませんでした。' : error.message)); if(error.stage)failure.stage=error.stage; reject(failure); }
       });
     });
   }
@@ -115,10 +119,47 @@
   };
   api.insertTitle = async function (record) {
     if (activeTitleInsertion || activeController) throw new Error('ほかの作成・挿入処理が終わってから実行してください。');
-    var sourcePath = titlePath(record && record.templatePath), track = record.videoTrack;
+    var timeline = record && record.sourceType === 'timeline';
+    var sourcePath = timeline ? timelinePath(record.templatePath) : titlePath(record && record.templatePath), track = record.videoTrack;
+    if (timeline) window.CardTimelineModel.validateTemplate(record);
     if (track !== 'auto' && (!Number.isInteger(track) || track < 0 || track > 999)) throw new Error('挿入先のビデオトラックを確認してください。');
     activeTitleInsertion = true;
-    try { return await host('insertTitle', [sourcePath, track]); } finally { activeTitleInsertion = false; }
+    try { return timeline ? await host('trialInsert', [sourcePath, record.sequenceId, track, { width: record.width, height: record.height, timebase: record.timebase, durationTicks: record.durationTicks }]) : await host('insertTitle', [sourcePath, track]); } finally { activeTitleInsertion = false; }
+  };
+  function timelinePath(value) {
+    if (typeof value !== 'string' || !path.isAbsolute(value) || value.length > 32768 || /[\u0000-\u001f]/.test(value) || path.extname(value).toLowerCase() !== '.prproj') throw new Error('試験テロップの保管先を確認できません。');
+    var stat; try { stat = fs.statSync(value); } catch (error) { throw new Error('保管した試験テロップが見つかりません。'); }
+    if (!stat.isFile() || stat.size < 1 || stat.size > 256 * 1024 * 1024) throw new Error('試験テロップのプロジェクトを読み取れません（256MBまで）。');
+    return value;
+  }
+  api.readTimelineCandidate = async function () {
+    if (activeTitleInsertion || activeController) throw new Error('処理が終わってから、選択クリップを読み込んでください。');
+    var value = await host('trialSelection'); return value.candidate;
+  };
+  api.preserveTimelineTitle = async function (candidate) {
+    if (activeTitleInsertion || activeController) throw new Error('ほかの作成・挿入処理が終わってから実行してください。');
+    window.CardTimelineModel.validateCandidate(candidate);
+    var raw = window.__adobe_cep__.getSystemPath('userData'), base = /^file:/i.test(raw) ? nodeURL.fileURLToPath(raw) : raw;
+    if (typeof base !== 'string' || !path.isAbsolute(base)) throw new Error('試験テロップの保管先を確認できません。');
+    var folder = path.join(base, 'CardRevealStudio', 'timeline-titles'); fs.mkdirSync(folder, { recursive: true });
+    var ownFolder = fs.mkdtempSync(path.join(folder, 'trial-')), destination = path.join(ownFolder, 'title.prproj');
+    activeTitleInsertion = true;
+    try {
+      var value = await host('trialCapture', [candidate, destination]); timelinePath(destination);
+      return { templatePath: destination, sourceName: value.template.sourceName || candidate.clipName, sequenceId: value.template.sequenceId, width: value.template.width, height: value.template.height, timebase: value.template.timebase, durationTicks: value.template.durationTicks, warnings: value.warnings };
+    } catch (error) {
+      // Only this newly allocated directory can be removed. Never remove an
+      // original media path or another saved template on failure.
+      try { fs.rmSync(ownFolder, { recursive: true, force: true }); } catch (ignored) {}
+      throw error;
+    } finally { activeTitleInsertion = false; }
+  };
+  api.saveTimelineTrialReport = async function (report) {
+    var result = await host('pickTrialReport'); if (!result) return null;
+    if (typeof result !== 'string' || !path.isAbsolute(result) || /[\u0000-\u001f]/.test(result)) throw new Error('診断JSONの保存先を確認できません。');
+    if (path.extname(result).toLowerCase() !== '.json') result += '.json';
+    var content = JSON.stringify(report, null, 2); if (content.length > 1024 * 1024) throw new Error('診断データが大きすぎます。');
+    fs.writeFileSync(result, content, 'utf8'); return result;
   };
   function outputFilePath(outputPath) {
     if (typeof outputPath !== 'string' || !path.isAbsolute(outputPath) || outputPath.indexOf('\u0000') !== -1) throw new Error('書き出した動画の保存先を確認できません。');

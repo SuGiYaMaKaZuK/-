@@ -1,10 +1,10 @@
-# Card Reveal Studio v0.9.0
+# Card Reveal Studio v0.10.0（タイムライン登録の試験版）
 
 Premiere Pro 2026（26.x）・Windows向けの開発版です。カードめくり、台形3分割、画像の外周強調を編集して保存できます。いつものテロップの位置・大きさ・フォントは、.mogrtで登録して1クリックで挿入できます。
 
 ## ダウンロードと導入
 
-1. [導入用ZIPをダウンロード](https://github.com/SuGiYaMaKaZuK/-/raw/refs/heads/main/CardReveal-v0.9.0.zip)します。
+1. [導入用ZIPをダウンロード](https://github.com/SuGiYaMaKaZuK/-/raw/refs/heads/main/CardReveal-v0.10.0.zip)します。
 2. Premiere Proを終了し、ZIPを右クリックして **すべて展開** します。
 3. 展開したフォルダーの **Install.cmd** を実行します。管理者権限は不要です。
 4. 初回は描画用FFmpegを取得します（約30MB）。完了後にPremiereを起動します。
@@ -24,9 +24,42 @@ Premiere Pro 2026（26.x）・Windows向けの開発版です。カードめく�
 
 以前のMAINに混在していた演出とテロップは、それぞれの欄に分けて表示します。保存済みデータや.mogrtの保管コピーは移動・削除しません。画像は実際のパネルにサンプルを保存した見本です。テロップのファイル処理とホスト通信はモックを用いています。
 
+## タイムラインからの登録を試す（v0.10.0）
+
+**これは実機検証用の試作です。WindowsのPremiereで、ドラッグの受信・見た目の保持・再挿入はまだ確認できていません。** 通常の.mogrt登録は引き続き使えます。
+
+![タイムライン登録の試験モード](https://github.com/SuGiYaMaKaZuK/-/raw/refs/heads/main/docs/timeline-trial-preview.png)
+
+1. **テロップ → タイムライン登録を試す** をONにします。起動・再読み込み時はOFFに戻ります。
+2. Premiereのタイムラインで、テロップのビデオクリップを **1つだけ選択** し、下段の試験ドロップ欄へドラッグします。反応しない場合は **選択中のクリップを読み込む** を押してください。
+3. 表示された **クリップ名・シーケンス・トラック・時刻・画面サイズ** を確認します。目的のクリップであればチェックを入れ、名前と保存先を決めて **保管して登録（試験）** を押します。
+4. 同じ画面サイズ・fpsの **空のテストシーケンス** を開き、試験テロップのサムネイルから再挿入を試します。試験モードはONにしてください。
+5. 見た目と文字を確認します。挿入はシーケンス（ネスト）として行い、文字はネストを開いて編集します。無音の音声クリップが追加された場合は画面で案内します。
+
+![選択クリップを確認して保管する画面](https://github.com/SuGiYaMaKaZuK/-/raw/refs/heads/main/docs/timeline-trial-review-preview.png)
+
+**この試作が確認する対象は、タイムラインの「選択中クリップ」です。ドラッグした項目自体をデータから識別できたわけではありません。** ドロップをきっかけに選択を読み、保存前に利用者が対象を確認する方式です。ドラッグイベントそのものがPremiereから届かない場合は、ボタンでの読み込みが必要になります。
+
+保存は.mogrtへの変換ではなく、一時シーケンスを複製して選択したクリップだけの `.prproj` を書き出す試作です。フォントや位置をスクリプトから個別に読み直したり書き換えたりせず、Premiereの状態ごと保管する方法を試します。元のシーケンスのクリップとIn/Outは書き換えず、一時シーケンスを後片付けします。作成・削除によってプロジェクトの変更済み表示や履歴が残る場合があり、プロジェクトの保存は自動で実行しません。
+
+### 試験版の制限と保存先
+
+- キャプション・音声・調整レイヤー・ネスト全体は対象外です。キャプションは先にグラフィックへ変換し、ネスト内では実際のテロップを選んでください。
+- 画像やAfter Effects素材を含む場合は、元の依存ファイルも必要です。フォントはPCにインストールされている必要があります。
+- 試験挿入は、**全ビデオ／音声トラックで再生ヘッド以降にクリップがなく、ロック・非表示ではない** 場合だけ実行します。通常編集中の映像に直接試さず、空のテストシーケンスを使ってください。
+- 取り込みで新しい独立シーケンスを特定できない場合や、保存・配置結果を確認できない場合は停止します。自動再試行しません。再度押す前にPremiereの状態を確認してください。
+- 保管先はCEPの `userData/CardRevealStudio/timeline-titles/trial-*/title.prproj` です。登録の削除で保管ファイルや挿入済みシーケンスは消しません。
+- ⋯から名前・グループ・挿入先の変更と登録の削除ができます。**v0.9.0以前へ戻す場合は、先に試験テロップの登録を削除してください。** 古い版は.prproj形式の登録を読み込めません。元の.mogrt登録・演出・素材と配置のデータは保持します。
+
+### 反応しない・エラーになる場合
+
+**診断を保存** から、端末にJSONを保存できます。ドラッグイベントの有無・形式名・ファイル数、選択読み込み／複製／書き出し／挿入の結果や失敗段階を記録します。ドラッグ本文は記録せず、自動送信は行いません。パネルを閉じたり再読み込みしたりする前に保存してください。
+
+実装は[Adobe CEP公式のSequence.clone/createSubsequence/exportAsProject/importSequences等の型定義](https://github.com/Adobe-CEP/Samples/blob/master/PProPanel/jsx/PremierePro.23.0.d.ts)と[公式サンプル](https://github.com/Adobe-CEP/Samples/blob/master/PProPanel/jsx/PPRO/Premiere.jsx)に基づきます。ネイティブなドラッグ受信の制約は[Adobe公式リポジトリの説明](https://github.com/Adobe-CEP/CEP-Resources/issues/306)を参照してください。
+
 ## テロップを.mogrtファイルのドラッグで登録
 
-**この版では、編集タイムラインのクリップを直接ドラッグして登録する操作には対応していません。** ドロップできるのは、Premiereで書き出したローカルの **.mogrtファイル** です。タイムラインの不明なドラッグ情報を、現在選択中の別のクリップで代用して登録することはありません。[Adobe公式CEPリポジトリの説明](https://github.com/Adobe-CEP/CEP-Resources/issues/306)も参照してください。
+**通常モードでは、編集タイムラインのクリップを直接登録しません。** 上記の試験モードをOFFにした場合、ドロップできるのは、Premiereで書き出したローカルの **.mogrtファイル** です。タイムラインの不明なドラッグ情報を、現在選択中の別のクリップで代用して登録することはありません。[Adobe公式CEPリポジトリの説明](https://github.com/Adobe-CEP/CEP-Resources/issues/306)も参照してください。
 
 **最初の1回：**
 
@@ -159,7 +192,7 @@ FFmpegは同梱せず、[固定リリースb6.1.1](https://github.com/eugeneware
 
 検証内容は `検証結果.txt` を参照してください。**WindowsインストーラーとPremiere Pro 2026実機内の動作は未検証です。** Adobe Marketplaceの署名済み製品ではありません。
 
-開発用の確認はNode.js 18以降・FFmpeg・ffprobeで `npm test`、Playwright・Chromiumを用意して `node tests/ui-smoke.cjs`、`node tests/titles-ui-smoke.cjs`、`node tests/editing-ui-smoke.cjs`、`node tests/telop-layout-ui-smoke.cjs` を実行します。パネル本体へのnpmパッケージ導入は不要です。
+開発用の確認はNode.js 18以降・FFmpeg・ffprobeで `npm test`、Playwright・Chromiumを用意して `node tests/ui-smoke.cjs`、`node tests/titles-ui-smoke.cjs`、`node tests/editing-ui-smoke.cjs`、`node tests/telop-layout-ui-smoke.cjs`、`node tests/timeline-trial-ui-smoke.cjs` を実行します。パネル本体へのnpmパッケージ導入は不要です。
 
 ## v0.6.0の変更
 
@@ -180,3 +213,7 @@ MAIN・SABUの検索、ワンクリック更新、保存状態の表示、保存
 ## v0.9.0の変更
 
 各グループの上段を「演出」、下段を「テロップ」に分け、別々の検索・件数表示にしました。旧SABUは上部の「素材と配置」へ移しています。テロップは.mogrtファイルを専用欄や登録画面へドラッグして選べます。タイムラインのクリップを直接ドラッグして登録する機能は未対応です。
+
+## v0.10.0の変更
+
+タイムライン登録を調べる試験モードを追加しました。ドラッグをきっかけに選択中のビデオクリップを読み、対象を確認してから一時シーケンス経由でプロジェクト形式へ保管します。空のテストシーケンスへのネスト挿入、段階別の失敗処理、ローカル診断JSONに対応しています。ドラッグ項目自体の識別やPremiere実機での見た目の保持を確認した版ではありません。

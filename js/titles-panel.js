@@ -2,7 +2,7 @@
   'use strict';
   var Lib = window.CardLibrary, Library = window.CardLibraryPanel, Panel = window.CardPanel, Bridge = window.CardBridge;
   var $ = function (id) { return document.getElementById(id); };
-  var draft = null, baseline = null, chosen = null, preserved = null, saving = false, choosing = false, inserting = false, generation = 0, lastInsert = 0;
+  var draft = null, baseline = null, chosen = null, preserved = null, saving = false, choosing = false, inserting = false, generation = 0, lastInsert = 0, externalBusy = false;
   function status(message, error) {
     $('status-text').textContent = message; $('status-text').title = message; $('status').classList.toggle('error', !!error);
     $('editor-status').textContent = message; $('editor-status').classList.toggle('error', !!error);
@@ -13,9 +13,9 @@
   }
   function option(select, value, label) { var el = document.createElement('option'); el.value = value; el.textContent = label; select.appendChild(el); }
   function sync() {
-    var busy = Panel.isBusy() || inserting, unavailable = !Library.isAvailable();
+    var busy = Panel.isBusy() || inserting || externalBusy, unavailable = !Library.isAvailable();
     ['register-title','add-title','title-dropzone'].forEach(function(id){$(id).disabled=busy || saving || choosing || unavailable;});
-    document.querySelectorAll('[data-insert-title]').forEach(function (button) { button.disabled = busy || unavailable || !Bridge.hasHost; });
+    document.querySelectorAll('[data-insert-title]').forEach(function (button) { button.disabled = busy || unavailable || !Bridge.hasHost || button.dataset.titleSource==='timeline' && (!window.CardTimelineTrialPanel || !window.CardTimelineTrialPanel.isEnabled()); });
     document.querySelectorAll('[data-manage-title]').forEach(function (button) { button.disabled = busy || unavailable; });
     $('pick-title-template').disabled = busy || saving || choosing || !Bridge.hasHost;
     $('save-title').disabled = busy || saving || choosing || unavailable || !Bridge.hasHost || !(chosen || draft && draft.templatePath);
@@ -25,7 +25,7 @@
     $('save-title').textContent = saving ? '保存中…' : draft && draft.id ? '登録内容を保存' : 'テロップに登録';
   }
   async function open(id, incoming, targetGroup) {
-    if (Panel.isBusy() || inserting || choosing || saving || !Library.isAvailable()) return;
+    if (Panel.isBusy() || externalBusy || inserting || choosing || saving || !Library.isAvailable()) return;
     var state = Library.getState(), existing = (state.titles || []).find(function (t) { return t.id === id; });
     if (id && !existing) { status('保存したテロップが見つかりません。', true); return; }
     var token = ++generation;
@@ -62,7 +62,7 @@
   function dropError(error,inForm){var value=message(error);if(inForm)$('title-error').textContent=value;else{$('title-drop-error').hidden=false;$('title-drop-error').textContent=value;}status(value,true);}
   async function dropped(event,inForm){
     event.preventDefault();event.stopPropagation();event.currentTarget.classList.remove('drop-active');
-    if(saving || choosing || inserting || Panel.isBusy()){dropError(new Error('処理が終わってからファイルをドロップしてください。'),inForm);return;}
+    if(saving || choosing || inserting || externalBusy || Panel.isBusy()){dropError(new Error('処理が終わってからファイルをドロップしてください。'),inForm);return;}
     var group=Library.getState().activeGroupId,token=generation;
     try{
       if(!Library.isAvailable())throw new Error('ライブラリを保存できません。保存データを確認してください。');
@@ -115,16 +115,17 @@
     catch (error) { $('title-error').textContent = message(error); }
   });
   async function insert(id) {
-    if (inserting || saving || choosing || Panel.isBusy() || Date.now() - lastInsert < 600) return;
+    if (inserting || saving || choosing || externalBusy || Panel.isBusy() || Date.now() - lastInsert < 600) return;
     if (!Bridge.hasHost) { status('テロップの挿入はPremiere内で利用できます。', true); return; }
     var record = (Library.getState().titles || []).find(function (t) { return t.id === id; }); if (!record) return;
     inserting = true; lastInsert = Date.now(); window.dispatchEvent(new CustomEvent('cardreveal:title-busy', { detail: { busy: true } })); sync();
     status('「' + record.name + '」を挿入しています…');
     try {
       var result = await Bridge.insertTitle(Lib.clone(record));
-      if (result.verified) status('「' + record.name + '」をV' + (result.videoTrack + 1) + 'の再生ヘッド位置に挿入しました。Premiereで文字を編集できます。');
+      if(record.sourceType==='timeline')window.dispatchEvent(new CustomEvent('cardreveal:timeline-trial-insert',{detail:{ok:!!result.verified,verified:!!result.verified,audioAdded:result.audioAdded || 0}}));
+      if (result.verified) status('「' + record.name + '」をV' + (result.videoTrack + 1) + 'の再生ヘッド位置に挿入しました。'+(record.sourceType==='timeline'?'ネストを開いて文字を確認・編集してください。'+(result.audioAdded?' 無音の音声クリップも追加されています。':''):'Premiereで文字を編集できます。'));
       else status('挿入処理は返りましたが、配置を確認できませんでした。再度押す前にPremiereのタイムラインを確認してください。', true);
-    } catch (error) { status(message(error), true); }
+    } catch (error) { if(record.sourceType==='timeline')window.dispatchEvent(new CustomEvent('cardreveal:timeline-trial-insert',{detail:{ok:false,stage:error.stage || null,error:message(error)}}));status(message(error), true); }
     finally { inserting = false; lastInsert = Date.now(); window.dispatchEvent(new CustomEvent('cardreveal:title-busy', { detail: { busy: false } })); sync(); }
   }
   $('title-gallery').addEventListener('click', function (event) {
@@ -135,5 +136,5 @@
   $('title-dialog').addEventListener('cancel', function (event) { if (saving || choosing) event.preventDefault(); });
   $('title-dialog').addEventListener('close', function () { generation++; draft = null; baseline = null; chosen = null; preserved = null; });
   document.addEventListener('keydown', function (event) { if ($('title-dialog').open && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); if (!saving && !choosing) $('title-form').requestSubmit(); } });
-  window.addEventListener('cardreveal:library-changed', sync); window.addEventListener('cardreveal:busy', sync); sync();
+  window.addEventListener('cardreveal:title-busy',function(event){externalBusy=!!event.detail.busy;sync();});window.addEventListener('cardreveal:timeline-trial-mode',sync);window.addEventListener('cardreveal:library-changed', sync); window.addEventListener('cardreveal:busy', sync); sync();
 }());

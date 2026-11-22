@@ -43,6 +43,9 @@ var CardReveal = (function () {
         pickTitleTemplate: function () {
             try { return selected(File.openDialog('いつものテロップを保存した.mogrtを選択', 'Motion Graphics Template:*.mogrt', false)); } catch(e) { return error(e); }
         },
+        pickTrialReport: function () {
+            try { return selected(new File(defaultFolder().fsName + '/timeline-drag-diagnostic.json').saveDlg('タイムライン登録の診断JSONを保存', 'JSON:*.json')); } catch(e) { return error(e); }
+        },
         titleContext: function () {
             try {
                 var seq = app.project && app.project.activeSequence;

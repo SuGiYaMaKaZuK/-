@@ -1,8 +1,8 @@
-Card Reveal Studio v0.9.0 検証結果
+Card Reveal Studio v0.10.0 検証結果（タイムライン登録試験）
 
 Linux / Node.js 24 / FFmpeg 7.1.5 / Chromium (headless)
 
-npm test：94件すべて成功。
+npm test：107件すべて成功。
 - 既存のカードめくり・3分割・外周強調、動画・素材変形、透明／単色、90/120fpsを実FFmpeg出力で確認。
 - 形状マスク・多角形・レイヤー順・発光・回転・一時ファイルの成功／失敗／キャンセル時の処理。
 - ファイル選択・ExtendScript通信・読み込み・再試行はホストAPIのモックで確認。
@@ -84,3 +84,13 @@ v0.9.0 演出／テロップ分離とファイルドロップ：
 
 未対応：Premiereタイムラインのグラフィックを直接ドラッグしてプラグインへ登録する操作。選択クリップの自動MOGRT書き出しは実装していない。
 未検証：Windows/Premiere Pro 2026実機でのOSファイルドロップ、File.pathの取得、MOGRT挿入。画面見本のファイル処理・ホスト通信はモック。
+
+v0.10.0 タイムライン登録の試作：
+- tests/timeline-host.test.js：ホストをvmの模擬APIで検証。選択の読み取り、正確なticks、元クリップ・字体データ・In/Outを変えず一時コピーだけを書き出す制御を確認。
+- ドキュメント／選択／名前／位置／形式の変更、既存出力ファイル、元シーケンスを返すclone、余分な音声・先頭の空白、clone/subsequence/export失敗を再現し、既存シーケンスを削除しない。
+- 試験挿入の画面サイズ・fps・空き条件、独立シーケンスの確認、overwriteだけを使うこと、結果不明時の停止と依存ファイル保持を確認。
+- tests/timeline-bridge.test.js：一意なuserData保存先、実ファイルの保持・新規フォルダーだけの失敗時削除、通信プロトコル検証、排他解除、明示的な診断保存、native/MOGRTのレコード共存を確認。
+- node tests/timeline-trial-ui-smoke.cjs：試験OFF既定、dropと選択ボタンの候補確認、確認チェック必須、自動登録しない、保管失敗と操作排他、容量不足時のコピー再利用、再起動後OFF、登録設定・削除、空シーケンス条件エラーの表示、MOGRT登録の継続、本文を含まない診断保存、幅384pxの操作を確認。
+- これらはモデル・ファイル処理・UIと模擬ホストのテストであり、実際のPremiereがグラフィックのフォントや位置を保持できた証拠ではありません。
+
+未検証：Premiere Pro 2026 Windowsの実際のドラッグイベント、選択クリップとドラッグ項目の同一性、clone/createSubsequence/exportAsProjectのグラフィック保持、importSequences/overwriteClipの実際のネスト・音声・フォント・位置・キーフレーム再現。ユーザーの空テストシーケンスでの確認が必要。
