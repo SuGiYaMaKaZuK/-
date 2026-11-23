@@ -16,12 +16,12 @@ test('title library upgrades existing data without rewriting projects or storage
   const saved = title(loaded); assert.deepEqual(Object.keys(saved).sort(), ['groupId', 'id', 'name', 'sourceName', 'templatePath', 'videoTrack'].sort());
   assert.equal(saved.project, undefined); assert.deepEqual(loaded.presets, state.presets);
 });
-test('titles and effects share group names safely, including moves and group deletion', () => {
+test('legacy title records remain readable without reserving saved-plugin names', () => {
   const state = Lib.create(), first = title(state), project = Model.createProject();
-  assert.throws(() => Lib.savePreset(state, { name: first.name, groupId: 'main', project }), /同じ名前/);
-  Lib.savePreset(state, { name: 'Cards', groupId: 'main', project });
+  const saved = Lib.savePreset(state, { name: first.name, groupId: 'main', project });
+  Lib.editPreset(state, saved.id, 'Cards', 'main');
   assert.throws(() => title(state, { name: 'Cards' }), /同じ名前/);
-  assert.throws(() => Lib.editPreset(state, state.presets[0].id, first.name, 'main'), /同じ名前/);
+  Lib.editPreset(state, saved.id, first.name, 'main'); Lib.editPreset(state, saved.id, 'Cards', 'main');
   const group = Lib.addGroup(state, 'ボス戦'), second = title(state, { groupId: group.id });
   Lib.removeGroup(state, group.id, 'main');
   assert.equal(state.titles.find(t => t.id === second.id).name, 'いつもの字幕 (2)');

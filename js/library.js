@@ -2,10 +2,11 @@
   var Model=root.CardModel;
   if(!Model && typeof module==='object' && module.exports)Model=require('./model');
   var Timeline=root.CardTimelineModel;if(!Timeline && typeof window==='undefined' && typeof module==='object' && module.exports)Timeline=require('./timeline-model');
-  var api=factory(Model,Timeline);
+  var MediaGroups=root.CardMediaGroups;if(!MediaGroups && typeof window==='undefined' && typeof module==='object' && module.exports)MediaGroups=require('./media-groups');
+  var api=factory(Model,Timeline,MediaGroups);
   if(typeof module==='object' && module.exports)module.exports=api;
   root.CardLibrary=api;
-}(typeof window!=='undefined'?window:this,function(Model,Timeline){
+}(typeof window!=='undefined'?window:this,function(Model,Timeline,MediaGroups){
   'use strict';
   var key='cardReveal.library.v1',legacyKey='cardReveal.presets.v1';
   function clone(value){return JSON.parse(JSON.stringify(value));}
@@ -23,17 +24,18 @@
     if(state.titles!==undefined && !Array.isArray(state.titles))throw new Error('テロップの保存データを確認してください。');
     var titles={};(state.titles || []).forEach(function(t){validateTitle(t);if(typeof t.id!=='string' || !t.id || titles[t.id] || !groups[t.groupId])throw new Error('テロップの保存先を確認してください。');titles[t.id]=true;name(t.name);});
     if(!groups[state.activeGroupId])throw new Error('選択中のグループが見つかりません。');
+    if(state.mediaGroups!==undefined){if(!MediaGroups)throw new Error('素材グループの機能を読み込めませんでした。');MediaGroups.validate(state.mediaGroups);}
     return state;
   }
   function create(legacy){
-    var state={version:1,activeGroupId:'main',groups:[{id:'main',name:'Main'}],presets:[],assets:[],titles:[]};
+    var state={version:1,activeGroupId:'main',groups:[{id:'main',name:'Main'}],presets:[],assets:[],titles:[],mediaGroups:MediaGroups.create()};
     if(legacy!==undefined && !Array.isArray(legacy))throw new Error('以前のプリセットを読み込めませんでした。保存データは変更していません。');
     (legacy || []).forEach(function(p){if(!p || typeof p.name!=='string' || !p.project || typeof p.project!=='object')throw new Error('以前のプリセットを確認してください。保存データは変更していません。');state.presets.push({id:id('preset'),groupId:'main',name:name(p.name),project:clone(p.project),thumbnail:null});});
     return validate(state);
   }
   function load(storage){
     var current=storage.getItem(key);
-    if(current!==null){try{var value=JSON.parse(current);if(value && value.assets===undefined)value.assets=[];if(value && value.titles===undefined)value.titles=[];return validate(value);}catch(error){throw new Error('保存ライブラリを読み込めませんでした。元データは変更していません。'+error.message);}}
+    if(current!==null){try{var value=JSON.parse(current);if(value && value.assets===undefined)value.assets=[];if(value && value.titles===undefined)value.titles=[];if(value && value.mediaGroups===undefined)value.mediaGroups=MediaGroups.create();return validate(value);}catch(error){throw new Error('保存ライブラリを読み込めませんでした。元データは変更していません。'+error.message);}}
     var old=storage.getItem(legacyKey),state;
     try{state=create(old===null?undefined:JSON.parse(old));}catch(error){throw new Error('以前のプリセットを移行できませんでした。元データは変更していません。'+error.message);}
     // Write the complete migrated state before the UI can make changes. Keep
@@ -56,7 +58,7 @@
     var label=name(options.name);group(state,options.groupId);
     var existing=options.id?state.presets.find(function(p){return p.id===options.id;}):null;
     if(options.id && !existing)throw new Error('保存した演出が見つかりません。');
-    if(state.presets.concat(state.titles || []).some(function(p){return p.id!==options.id && p.groupId===options.groupId && p.name===label;}))throw new Error('このグループに同じ名前があります。別の名前で保存してください。');
+    if(state.presets.some(function(p){return p.id!==options.id && p.groupId===options.groupId && p.name===label;}))throw new Error('このグループに同じ名前があります。別の名前で保存してください。');
     var project=Model.upgrade(clone(options.project)),errors=Model.validate(project);if(errors.length)throw new Error(errors.join(' / '));
     var thumbnail=typeof options.thumbnail==='string' && /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(options.thumbnail) && options.thumbnail.length<=300000?options.thumbnail:null;
     var value={id:existing?existing.id:id('preset'),groupId:options.groupId,name:label,project:project,thumbnail:thumbnail};
@@ -65,7 +67,7 @@
   }
   function editPreset(state,presetId,label,groupId){
     group(state,groupId);label=name(label);var p=state.presets.find(function(p){return p.id===presetId;});if(!p)throw new Error('保存した演出が見つかりません。');
-    if(state.presets.concat(state.titles || []).some(function(other){return other.id!==presetId && other.groupId===groupId && other.name===label;}))throw new Error('移動先に同じ名前の演出があります。名前を変更してください。');p.name=label;p.groupId=groupId;state.activeGroupId=groupId;return p;
+    if(state.presets.some(function(other){return other.id!==presetId && other.groupId===groupId && other.name===label;}))throw new Error('移動先に同じ名前の演出があります。名前を変更してください。');p.name=label;p.groupId=groupId;state.activeGroupId=groupId;return p;
   }
   function removePreset(state,presetId){if(!state.presets.some(function(p){return p.id===presetId;}))throw new Error('保存した演出が見つかりません。');state.presets=state.presets.filter(function(p){return p.id!==presetId;});}
   function baseProject(mode){return Model.setMode(Model.createProject(),mode);}

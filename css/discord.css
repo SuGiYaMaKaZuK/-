@@ -254,3 +254,21 @@
 .media-preview-dialog>footer{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
 @media(max-width:760px){.discord-ui .category-rail .rail-category{width:42px;height:42px;min-height:42px}.media-collection-heading{padding-left:18px;padding-right:18px}.media-collection-toolbar{padding-left:18px;padding-right:18px}.media-collection-heading h2{font-size:20px}}
 @media(max-width:500px){.media-collection-heading{flex-direction:column;gap:12px;padding:20px 13px 16px}.media-collection-heading h2{font-size:18px}.media-collection-heading p{font-size:10px}.media-collection-toolbar{padding-left:13px;padding-right:13px}.discord-ui .media-preview-dialog{padding:14px}.media-preview-dialog>footer{flex-wrap:wrap}.media-preview-stage>img,.media-preview-stage>video{max-height:50vh}}
+/* Three sections: plugins, videos and images. Media folders are independent. */
+.discord-ui .channel-sidebar #toggle-template-panel{display:flex;align-items:center;justify-content:flex-start;gap:10px;width:100%;max-width:none;height:auto;min-height:37px;padding:8px 10px;margin:0;border:0;border-radius:6px;background:transparent;color:#aeb3bd;font-size:12px}
+.discord-ui .channel-sidebar #toggle-template-panel .ui-icon{width:19px;height:19px;color:#808794}
+.discord-ui .channel-sidebar #toggle-template-panel:hover{background:#35373c;color:#f2f3f5}
+.discord-ui .channel-sidebar #toggle-template-panel[aria-current=page]{background:#40424a;color:white}
+.discord-ui .main-saved-section{flex:1;max-height:none}
+.discord-ui #media-sidebar .sidebar-group-label{padding-top:1px;padding-bottom:9px}
+.discord-ui #add-media-group{display:grid;place-items:center;width:24px;height:24px;min-height:24px;padding:0;background:transparent;border:0;color:#a5aec1}
+#add-media-group .ui-icon{width:16px;height:16px}
+.media-group-tabs{display:flex;flex-direction:column;gap:3px;max-height:58vh;overflow:auto;scrollbar-width:thin}
+.discord-ui .media-group-tab[aria-selected=true]{background:#404652;color:#f3f4ff}
+.media-group-tab[aria-selected=true] .ui-icon{color:#b9c1ff}
+.media-group-help{font-size:10px;line-height:1.9;color:#929fb4;padding:14px 9px 7px}
+.discord-ui .media-tile .preset-title{padding-right:34px}
+.discord-ui .category-rail{gap:12px}
+.discord-ui .small-dialog #media-move-name{font-size:12px;line-height:1.8;color:#c7cede;overflow-wrap:anywhere}
+.discord-ui .header-actions button{min-width:30px}
+@media(max-width:500px){.discord-ui .channel-sidebar #toggle-template-panel{font-size:12px}.discord-ui .gallery-heading .main-section-label{font-size:11px}}
