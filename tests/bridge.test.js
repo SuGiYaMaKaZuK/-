@@ -245,3 +245,15 @@ test('retry and folder host failures are surfaced instead of reporting success',
   const malformed = setup({ host: { revealOutput: () => 'null' } });
   await assert.rejects(malformed.api.openOutputFolder(output), /表示を確認できません/);
 });
+
+test('dropped files and local file URIs give the renderer a durable native path, including literal %, # and Japanese names', () => {
+  const { api } = setup(), media = path.resolve('/tmp/素材 # 100%20.MP4');
+  const direct = api.droppedMedia(media, true), uri = api.droppedMedia(url.pathToFileURL(media).href, false);
+  assert.deepEqual(direct, uri);
+  assert.equal(direct.path, media); assert.equal(direct.type, 'video'); assert.equal(direct.url, url.pathToFileURL(media).href);
+  assert.equal(api.mediaTypeForName('表紙.TIFF'), 'image');
+  assert.throws(() => api.droppedMedia('相対.png', true), /場所/);
+  assert.throws(() => api.droppedMedia('https://example.test/a.png', true), /場所/);
+  assert.throws(() => api.droppedMedia(path.resolve('/tmp/note.txt'), true), /対象外/);
+  assert.throws(() => setup({ fs: { statSync: () => ({ isFile: () => false }) } }).api.droppedMedia(url.pathToFileURL(media).href, false), /読み取れません/);
+});

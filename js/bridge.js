@@ -1,7 +1,12 @@
 (function () {
   'use strict';
   var api = window.CardBridge = { hasHost: false };
-  var connection = { version: '0.12.0', cepAvailable: !!(window.__adobe_cep__ && typeof window.__adobe_cep__.evalScript === 'function'), nodeAvailable: false, ready: false, initializationError: null, lastRequest: null }, requestId = 0;
+  var connection = { version: '0.13.0', cepAvailable: !!(window.__adobe_cep__ && typeof window.__adobe_cep__.evalScript === 'function'), nodeAvailable: false, ready: false, initializationError: null, lastRequest: null }, requestId = 0;
+  api.mediaTypeForName = function (name) {
+    if (/\.(png|jpe?g|webp|bmp|tiff?)$/i.test(name)) return 'image';
+    if (/\.(mp4|mov|m4v|avi|mkv|webm|mts|m2ts|mxf)$/i.test(name)) return 'video';
+    throw new Error('「' + name + '」は対象外です。PNG・JPEGなどの画像、またはMP4・MOVなどの動画を選んでください。');
+  };
   api.getHostStatus = function () { return JSON.parse(JSON.stringify(connection)); };
   function communicationError(message, code, stage) { var error = new Error(message); error.code = code; error.stage = stage; return error; }
   // Only read-only calls may time out and release the UI. A delayed write must
@@ -94,12 +99,23 @@
       });
     });
   }
-  function classify(filePath) {
-    var ext = path.extname(filePath).toLowerCase();
-    if (/^\.(png|jpe?g|webp|bmp|tiff?)$/.test(ext)) return 'image';
-    if (/^\.(mp4|mov|m4v|avi|mkv|webm|mts|m2ts|mxf)$/.test(ext)) return 'video';
-    throw new Error('PNG・JPEGなどの画像、またはMP4・MOVなどの動画を選んでください。');
+  function localMedia(value) {
+    var filePath = /^file:/i.test(value) ? nodeURL.fileURLToPath(value) : value;
+    if (typeof filePath !== 'string' || !path.isAbsolute(filePath) || /[\u0000-\u001f]/.test(filePath)) throw new Error('素材のファイルの場所を確認できません。');
+    filePath = path.normalize(filePath);
+    var name = path.basename(filePath);
+    return { path: filePath, type: api.mediaTypeForName(name), url: nodeURL.pathToFileURL(filePath).href, name: name };
   }
+  api.droppedMedia = function (value, fromFileList) {
+    var info = localMedia(value);
+    // When the drag only has a file URI, there is no OS File object to establish that it is a file.
+    if (!fromFileList) {
+      var regular = false;
+      try { regular = fs.statSync(info.path).isFile(); } catch (error) {}
+      if (!regular) throw new Error('「' + info.name + '」を読み取れません。エクスプローラーで元ファイルを確認してください。');
+    }
+    return info;
+  };
   function ffmpegPath() {
     var candidates = [path.join(root, 'bin', 'ffmpeg.exe')];
     if (nodeProcess.env.CARD_REVEAL_FFMPEG) candidates.push(nodeProcess.env.CARD_REVEAL_FFMPEG);
@@ -122,7 +138,7 @@
       result = await host('pickMedia');
     }
     if (!result) return null;
-    return { path: result, type: classify(result), url: nodeURL.pathToFileURL(result).href, name: path.basename(result) };
+    return localMedia(result);
   };
   api.mediaURL = function (filePath) { return nodeURL.pathToFileURL(filePath).href; };
   function titlePath(value) {

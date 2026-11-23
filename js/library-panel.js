@@ -1,7 +1,7 @@
 (function(){
   'use strict';
   var Lib=window.CardLibrary,Panel=window.CardPanel,$=function(id){return document.getElementById(id);};
-  var state,available=true,editingId=null,editingName='',opening=false,groupAction='add',saveAs=false,managingId=null,editorBaseline=null,saveTargetId=null,updatePending=false,timelineBusy=false;
+  var state,available=true,editingId=null,editingName='',opening=false,saveAs=false,managingId=null,editorBaseline=null,saveTargetId=null,updatePending=false,timelineBusy=false;
   var modes={cards:{name:'カードをめくる',accent:'#ed6ba8'},trapezoid:{name:'台形3分割スライド',accent:'#38c5e0'},highlight:{name:'画像を強調',accent:'#e4de4f'}};
   function text(value){return String(value).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
   function status(message,error){$('status-text').textContent=message;$('status').classList.toggle('error',!!error);$('editor-status').textContent=message;$('editor-status').classList.toggle('error',!!error);}
@@ -21,7 +21,7 @@
   function groupOptions(select,selected){select.innerHTML=state.groups.map(function(g){return '<option value="'+text(g.id)+'">'+text(g.name)+'</option>';}).join('');select.value=state.groups.some(function(g){return g.id===selected;})?selected:activeGroup().id;}
   function renderHome(){
     var current=activeGroup(),allItems=state.presets.filter(function(p){return p.groupId===current.id;}).map(function(p){return {kind:'effect',value:p};}),query=$('main-search').value.trim().toLocaleLowerCase(),items=allItems.filter(function(row){return !query || (row.value.name+' '+modes[mode(row.value.project)].name).toLocaleLowerCase().indexOf(query)>=0;});
-    $('group-tabs').innerHTML=state.groups.map(function(g){var active=g.id===current.id,initial=(Array.from(g.name.trim())[0] || '#').toLocaleUpperCase();return '<button class="group-tab" role="tab" data-group="'+text(g.id)+'" data-initial="'+text(initial)+'" aria-label="'+text(g.name)+'" aria-selected="'+active+'" aria-controls="saved-gallery" tabindex="'+(active?'0':'-1')+'" title="'+text(g.name)+'">'+text(g.name)+'</button>';}).join('');
+    $('group-tabs').innerHTML=state.groups.map(function(g){var active=g.id===current.id,initial=(Array.from(g.name.trim())[0] || '#').toLocaleUpperCase();return '<button class="group-tab" role="tab" data-group="'+text(g.id)+'" data-initial="'+text(initial)+'" aria-label="'+text(g.name)+'" aria-selected="'+active+'" aria-controls="saved-gallery" aria-haspopup="dialog" tabindex="'+(active?'0':'-1')+'" title="'+text(g.name)+' · 右クリックで管理">'+text(g.name)+'</button>';}).join('');
     $('group-heading').textContent=current.name;$('saved-count').textContent=query?items.length+'/'+allItems.length:allItems.length;$('empty-group').hidden=!!allItems.length || !available;$('main-search-empty').hidden=!query || !!items.length || !allItems.length;
     $('saved-gallery').innerHTML=items.map(function(row){var p=row.value;var info=modes[mode(p.project)];return '<article class="preset-tile" style="--preset-accent:'+info.accent+'"><button class="preset-open" data-open-preset="'+text(p.id)+'" aria-label="'+text(p.name)+'を編集"><span class="preset-art"><canvas width="320" height="180" aria-hidden="true"></canvas><span class="preset-mode-badge">'+info.name+'</span></span><span class="preset-title">'+text(p.name)+'</span><span class="preset-subtitle">編集して保存した演出</span></button><button class="preset-menu" data-manage-preset="'+text(p.id)+'" aria-label="'+text(p.name)+'の名前・グループ・削除" title="名前・グループ・削除">⋯</button></article>';}).join('');
     Array.from($('saved-gallery').querySelectorAll('.preset-tile')).forEach(function(tile,index){var row=items[index],p=row.value,target=tile.querySelector('canvas');      if(typeof p.thumbnail==='string' && /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(p.thumbnail)){
@@ -31,7 +31,7 @@
     syncBusy();window.dispatchEvent(new CustomEvent('cardreveal:library-changed'));
   }
   function syncBusy(){var busy=Panel.isBusy() || timelineBusy;$('close-editor').disabled=busy;$('save-to-group').disabled=busy || !available;$('save-copy').disabled=busy || !available;
-    document.querySelectorAll('[data-template-mode],[data-group],[data-open-preset],[data-manage-preset],#open-assets-library,#add-group,#rename-group').forEach(function(button){button.disabled=busy || (!available && !button.dataset.templateMode);});$('delete-group').disabled=busy || !available || state.groups.length<2;updateEditorState();
+    document.querySelectorAll('[data-template-mode],[data-group],[data-open-preset],[data-manage-preset],#open-assets-library,#add-group').forEach(function(button){button.disabled=busy || (!available && !button.dataset.templateMode);});updateEditorState();
   }
   function chooseGroup(groupId,focus){if(Panel.isBusy() || timelineBusy)return;try{if(groupId!==state.activeGroupId){$('main-search').value='';}transaction(function(next){if(!next.groups.some(function(g){return g.id===groupId;}))throw new Error('グループが見つかりません。');next.activeGroupId=groupId;});if(focus){var button=Array.from($('group-tabs').querySelectorAll('[data-group]')).find(function(b){return b.dataset.group===groupId;});if(button)button.focus();}}catch(error){fail(error);}}
   $('group-tabs').addEventListener('click',function(event){var button=event.target.closest('[data-group]');if(button)chooseGroup(button.dataset.group,false);});
@@ -82,10 +82,15 @@
       editingId=value.id;editingName=value.name;Panel.setDirty(false);editorBaseline=JSON.stringify(Panel.getProject());$('save-dialog').close();$('editor-dialog').close();$('main-search').value='';renderHome();status('「'+value.name+'」を「'+activeGroup().name+'」に保存しました。サムネイルから再編集できます。');
     }catch(error){$('save-error').textContent='保存できませんでした。'+errorMessage(error)+' JSON保存も利用できます。';}
   });
-  function openGroup(action){if(Panel.isBusy() || timelineBusy || !available)return;groupAction=action;$('group-dialog-title').textContent=action==='add'?'グループを追加':'グループ名を変更';$('confirm-group').textContent=action==='add'?'作成':'変更';$('group-name').value=action==='add'?'':activeGroup().name;$('group-error').textContent='';$('group-dialog').showModal();$('group-name').focus();$('group-name').select();}
-  $('add-group').addEventListener('click',function(){openGroup('add');});$('rename-group').addEventListener('click',function(){openGroup('rename');});
-  $('group-form').addEventListener('submit',function(event){event.preventDefault();if(Panel.isBusy() || timelineBusy)return;try{transaction(function(next){if(groupAction==='add')Lib.addGroup(next,$('group-name').value);else Lib.renameGroup(next,activeGroup().id,$('group-name').value);});$('group-dialog').close();status('グループを保存しました。');}catch(error){$('group-error').textContent=error.message || String(error);}});
-  $('delete-group').addEventListener('click',function(){if(Panel.isBusy() || timelineBusy || !available || state.groups.length<2)return;var current=activeGroup(),target=state.groups.find(function(g){return g.id!==current.id;});if(!window.confirm('「'+current.name+'」を削除しますか？ 保存した演出は「'+target.name+'」へ移します。同じ名前がある場合は番号を付けます。'))return;try{transaction(function(next){Lib.removeGroup(next,current.id,target.id);});status('グループを削除し、保存した演出を移しました。');}catch(error){fail(error);}});
+  $('add-group').addEventListener('click',function(){
+    if(Panel.isBusy() || timelineBusy || !available)return;
+    $('group-name').value='';$('group-error').textContent='';$('group-dialog').showModal();$('group-name').focus();
+  });
+  $('group-form').addEventListener('submit',function(event){
+    event.preventDefault();if(Panel.isBusy() || timelineBusy)return;
+    try{transaction(function(next){Lib.addGroup(next,$('group-name').value);});$('group-dialog').close();status('グループを追加しました。');}
+    catch(error){$('group-error').textContent=errorMessage(error);}
+  });
   $('saved-gallery').addEventListener('click',function(event){if(Panel.isBusy() || timelineBusy)return;var open=event.target.closest('[data-open-preset]'),manage=event.target.closest('[data-manage-preset]');
     if(open){var p=state.presets.find(function(p){return p.id===open.dataset.openPreset;});if(p){replace(p.project,p.id,p.name);status('「'+p.name+'」を開きました。変更は保存するまで元の演出に反映されません。');}}
     else if(manage){var item=state.presets.find(function(p){return p.id===manage.dataset.managePreset;});if(!item)return;managingId=item.id;$('manage-name').value=item.name;groupOptions($('manage-group'),item.groupId);$('manage-error').textContent='';$('manage-dialog').showModal();}
