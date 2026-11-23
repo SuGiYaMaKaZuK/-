@@ -1,0 +1,43 @@
+'use strict';
+const assert = require('node:assert/strict'), fs = require('node:fs'), path = require('node:path'), http = require('node:http'), os = require('node:os'), { execFileSync } = require('node:child_process');
+const { chromium } = require('playwright'), Lib = require('../js/library'), Model = require('../js/model');
+const root = path.resolve(__dirname, '..'), scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'card-media-ui-')), clip = path.join(scratch, 'intro.mp4');
+execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=0x5865f2:s=320x180:r=10:d=2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-an', clip]);
+const server = http.createServer((request, response) => {
+  const route = request.url.split('?')[0], filename = route === '/intro.mp4' ? clip : path.resolve(root, '.' + (route === '/' ? '/index.html' : decodeURIComponent(route)));
+  if (filename !== clip && !filename.startsWith(root + path.sep)) return response.writeHead(403).end();
+  fs.readFile(filename, (error, body) => { if (error) return response.writeHead(404).end(); response.setHeader('Content-Type', { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.png': 'image/png', '.mp4': 'video/mp4' }[path.extname(filename)] || 'application/octet-stream'); response.end(body); });
+});
+let browser;
+(async () => {
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); const base = 'http://127.0.0.1:' + server.address().port;
+  const state = Lib.create(), cards = Model.createProject();
+  cards.cards[0].mediaPath = base + '/examples/media/boss.png'; cards.cards[0].mediaType = 'image'; cards.cards[0].name = 'ボス画像';
+  Object.assign(cards.cards[1], { mediaPath: cards.cards[0].mediaPath, mediaType: 'image', name: 'ボス画像の別配置' });
+  Object.assign(cards.cards[2], { mediaPath: base + '/intro.mp4', mediaType: 'video', name: '紹介動画' });
+  Lib.savePreset(state, { name: 'ボス紹介', groupId: 'main', project: cards });
+  const frame = Lib.baseProject('highlight'); Object.assign(frame.cards[0], { mediaPath: cards.cards[0].mediaPath, mediaType: 'image', name: 'ボス画像' }); Lib.savePreset(state, { name: '外周強調', groupId: 'main', project: frame });
+  Lib.savePlacement(state, { ...Lib.placementFrom(cards, cards.cards[0].id), name: 'ボスの配置' }); Lib.savePlacement(state, { ...Lib.placementFrom(cards, cards.cards[2].id), name: '紹介動画の配置' });
+  browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', headless: true, args: ['--no-sandbox'] });
+  const page = await browser.newPage({ viewport: { width: 1120, height: 900 } }), errors = []; page.on('pageerror', error => errors.push(error.message));
+  await page.addInitScript(({ key, value }) => localStorage.setItem(key, JSON.stringify(value)), { key: Lib.key, value: state }); await page.goto(base);
+  const original = await page.evaluate(() => JSON.stringify(CardLibraryPanel.getState()));
+  assert.equal(await page.locator('.category-rail button').count(), 4); assert.equal(await page.locator('#rail-video-count').textContent(), '1'); assert.equal(await page.locator('#rail-image-count').textContent(), '1');
+  assert.equal(await page.locator('#group-tabs').evaluate(el => el.closest('#channel-sidebar') !== null), true);
+  await page.getByRole('button', { name: '元になるプラグイン', exact: true }).click(); assert.equal(await page.locator('#template-panel').isVisible(), true); assert.equal(await page.locator('#workspace-title').textContent(), '元になるプラグイン');
+  await page.getByRole('button', { name: '作成済みのプラグイン', exact: true }).click(); assert.equal(await page.locator('[data-open-preset]').count(), 2);
+  await page.getByRole('button', { name: '作成に使用する動画', exact: true }).click(); assert.equal(await page.locator('.media-tile').count(), 1); assert.match(await page.locator('.media-tile').textContent(), /紹介動画/);
+  await page.screenshot({ path: path.join(root, 'examples/panel-discord-videos.png') });
+  await page.locator('.media-tile button').click(); await page.waitForFunction(() => document.getElementById('media-preview-video').videoWidth === 320); assert.equal(await page.locator('#media-preview-video').evaluate(el => el.muted && el.paused), true); assert.equal(await page.locator('#media-preview-error').isVisible(), false);
+  await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.getElementById('media-preview-video').hasAttribute('src'));
+  await page.getByRole('button', { name: '作成に使用した画像', exact: true }).click(); assert.equal(await page.locator('.media-tile').count(), 1); await page.waitForFunction(() => document.querySelector('.media-tile img').naturalWidth > 0); assert.match(await page.locator('.media-tile').textContent(), /2件の演出で使用/);
+  await page.keyboard.press('Control+f'); assert.equal(await page.locator('#media-collection-search').evaluate(el => el === document.activeElement), true);
+  await page.locator('#media-collection-search').fill('存在しない素材'); assert.equal(await page.locator('.media-tile').count(), 0); assert.equal(await page.locator('#media-collection-empty').isVisible(), true); await page.keyboard.press('Escape'); assert.equal(await page.locator('.media-tile').count(), 1);
+  await page.screenshot({ path: path.join(root, 'examples/panel-discord-images.png') });
+  for (const width of [1120, 760, 420, 384]) { await page.setViewportSize({ width, height: 900 }); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false); for (const id of ['toggle-template-panel', 'library-home-button', 'open-video-library', 'open-image-library']) assert.equal(await page.locator('#' + id).isVisible(), true); }
+  await page.screenshot({ path: path.join(root, 'examples/panel-discord-four-icons-narrow.png') });
+  await page.locator('.media-tile button').click(); await page.waitForFunction(() => document.getElementById('media-preview-image').naturalWidth > 0); assert.equal(await page.locator('#media-preview-path').inputValue(), cards.cards[0].mediaPath); assert.match(await page.locator('#media-preview-uses').textContent(), /ボス紹介.*外周強調/);
+  await page.locator('#media-preview-manage').click(); assert.equal(await page.locator('#media-preview-dialog').isVisible(), false); assert.equal(await page.locator('#sabu-dialog').isVisible(), true);
+  assert.equal(await page.evaluate(() => JSON.stringify(CardLibraryPanel.getState())), original, 'category browsing, playback preview and opening asset settings never rewrite saved data');
+  assert.deepEqual(errors, []); console.log('Four-category media UI passed: real library references + deduplication, image/video filtering, real PNG and H264 previews, no autoplay, playback cleanup, search, asset-settings handoff, 1120–384px rail and unchanged saved data. Premiere not required.');
+})().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => { if (browser) await browser.close(); server.close(); fs.rmSync(scratch, { recursive: true, force: true }); });

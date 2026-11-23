@@ -51,7 +51,7 @@ let browser;
       window.module = { exports: {} };
       if (!preview && !params.has('nonode')) { window.cep_node = { require: requireNode }; window.require = requireNode; }
     }, { source: timelineSource });
-    await page.goto(base + query); return page;
+    await page.goto(base + query); await page.locator('#timeline-trial-tools>summary').click(); return page;
   }
   const page = await open(); await page.clock.install();
   assert.equal(await page.locator('#timeline-trial-check').isVisible(), true, 'connection check is available before opt-in');

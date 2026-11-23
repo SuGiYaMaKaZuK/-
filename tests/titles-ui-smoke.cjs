@@ -1,5 +1,7 @@
 /* Browser integration: node tests/titles-ui-smoke.cjs. Premiere calls are mocked. */
 'use strict';
+async function openTemplate(page,selector){if(!await page.locator(selector).isVisible())await page.locator('#toggle-template-panel').click();await page.locator(selector).click();}
+
 const assert = require('node:assert/strict'), fs = require('node:fs'), path = require('node:path'), http = require('node:http');
 const { chromium } = require('playwright');
 const root = path.resolve(__dirname, '..'), mime = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.png': 'image/png' };
@@ -24,7 +26,7 @@ let browser;
     };` }));
   await page.goto(url);
   // Cancellation and picker errors never fabricate a template.
-  await page.locator('#register-title').click(); assert.equal(await page.locator('#title-dialog').isVisible(), true);
+  await openTemplate(page,'#register-title'); assert.equal(await page.locator('#title-dialog').isVisible(), true);
   assert.equal(await page.locator('#save-title').isDisabled(), true);
   await page.evaluate(() => window.cancelPick = true); await page.locator('#pick-title-template').click(); assert.equal(await page.locator('#save-title').isDisabled(), true);
   await page.evaluate(() => { window.cancelPick = false; window.pickError = '選択画面を開けません'; }); await page.locator('#pick-title-template').click(); assert.match(await page.locator('#title-error').textContent(), /選択画面/);
@@ -68,6 +70,6 @@ let browser;
   }
   await page.locator('[data-manage-title]').click(); await page.locator('#delete-title').click(); await page.waitForFunction(() => !document.getElementById('title-dialog').open); assert.equal(await page.locator('[data-insert-title]').count(), 0);
   // Browser-only preview explains the host requirement and never exposes fake insertion.
-  const preview = await browser.newPage(); preview.on('pageerror', e => errors.push(e.message)); await preview.goto(url); await preview.locator('#register-title').click(); assert.equal(await preview.locator('#pick-title-template').isDisabled(), true); assert.equal(await preview.locator('#save-title').isDisabled(), true); assert.match(await preview.locator('#title-context-note').textContent(), /Premiere内/);
+  const preview = await browser.newPage(); preview.on('pageerror', e => errors.push(e.message)); await preview.goto(url); await openTemplate(preview,'#register-title'); assert.equal(await preview.locator('#pick-title-template').isDisabled(), true); assert.equal(await preview.locator('#save-title').isDisabled(), true); assert.match(await preview.locator('#title-context-note').textContent(), /Premiere内/);
   assert.deepEqual(errors, []); console.log('Title UI passed: native picker/cancel/errors, preserved-copy quota retry, one-click insertion/locking, reload/search/groups/settings, concurrent-edit protection, unverified/error states and 384px layout. Premiere calls mocked.');
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => { if (browser) await browser.close(); server.close(); });

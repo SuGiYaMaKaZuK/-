@@ -1,7 +1,7 @@
 (function () {
   'use strict';
   var api = window.CardBridge = { hasHost: false };
-  var connection = { version: '0.10.1', cepAvailable: !!(window.__adobe_cep__ && typeof window.__adobe_cep__.evalScript === 'function'), nodeAvailable: false, ready: false, initializationError: null, lastRequest: null }, requestId = 0;
+  var connection = { version: '0.11.0', cepAvailable: !!(window.__adobe_cep__ && typeof window.__adobe_cep__.evalScript === 'function'), nodeAvailable: false, ready: false, initializationError: null, lastRequest: null }, requestId = 0;
   api.getHostStatus = function () { return JSON.parse(JSON.stringify(connection)); };
   function communicationError(message, code, stage) { var error = new Error(message); error.code = code; error.stage = stage; return error; }
   // Only read-only calls may time out and release the UI. A delayed write must
