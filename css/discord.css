@@ -11,11 +11,11 @@
 .discord-ui input[type=checkbox]{accent-color:#5865f2}
 .icon-sprite{position:absolute;width:0;height:0;overflow:hidden;pointer-events:none}
 .ui-icon{width:19px;height:19px;display:block;flex:none;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
-.discord-ui .library-header{height:44px;padding:0 16px 0 19px;background:#1e1f22;border:0;gap:10px}
-.discord-ui .library-header h1{font-size:13px;font-weight:650;letter-spacing:-.15px}
-.discord-ui .library-header h1 span{color:#b5bac1}
-.discord-ui .brand-mark{width:25px;height:25px;border:0;border-radius:8px;background:#5865f2;color:#fff;font-size:10px}
-.discord-ui .app-version{border:0;margin-left:3px;padding-left:4px;letter-spacing:0;font-size:10px;color:#858994}
+
+
+
+
+
 .discord-ui .header-actions button{display:flex;align-items:center;gap:7px;background:transparent;font-size:11px}
 .discord-ui .header-actions .ui-icon{width:15px;height:15px;color:#949ba4}
 .studio-layout{display:grid;grid-template-columns:64px 200px minmax(0,1fr);flex:1;min-height:0;overflow:hidden}
@@ -52,11 +52,11 @@
 .sidebar-group-tools{border-top:1px solid #3b3d43;padding-top:12px;margin:4px 1px 0}
 .discord-ui .sidebar-group-tools .channel-button{font-size:11px;min-height:33px;color:#9298a3}
 .discord-ui .sidebar-group-tools .danger-text:hover{color:#ff9b9f;background:#e9485214}
-.sidebar-footer{display:flex;align-items:center;gap:9px;min-height:66px;padding:11px;background:#232428;border-top:1px solid #2c2e33}
-.local-avatar{display:grid;place-items:center;flex:none;width:33px;height:33px;border-radius:11px;background:#5865f2;color:white;font-weight:750;font-size:11px}
-.sidebar-footer>div{min-width:0;display:flex;flex-direction:column;gap:2px}
-.sidebar-footer strong{font-size:11px;color:#e2e4e8;font-weight:600;white-space:nowrap}
-.discord-ui .sidebar-footer .environment{font-size:9px;color:#858c98;letter-spacing:0;margin:0;line-height:1.4}
+
+
+
+
+
 .studio-workspace{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;border-radius:12px 0 0 0;background:#313338;border-left:1px solid #404249}
 .workspace-toolbar{height:60px;min-height:60px;display:flex;align-items:center;gap:12px;padding:0 22px;background:#313338;border-bottom:1px solid #24262a;box-shadow:0 1px 2px #0002}
 .workspace-symbol{color:#858b97}
@@ -164,10 +164,10 @@
 .discord-ui .studio-drawer .template-heading .drawer-close{position:absolute;right:0;top:15px}
 .discord-ui .studio-drawer .template-panel{border:0}
 @media(min-width:1400px){.studio-layout{grid-template-columns:68px 220px minmax(0,1fr)}.discord-ui .library-home{grid-template-columns:minmax(0,1fr) 240px}.discord-ui .gallery-heading{padding-left:25px;padding-right:25px}.discord-ui .saved-gallery{padding-left:25px;padding-right:25px;--tile-width:190px}}
-@media(max-width:1150px){.studio-layout{grid-template-columns:60px 185px minmax(0,1fr)}.discord-ui .group-bar{padding-left:4px;padding-right:4px}.discord-ui .library-home{grid-template-columns:minmax(0,1fr) 204px}.workspace-toolbar{padding:0 17px}.workspace-heading{gap:11px}.workspace-heading>span{font-size:10px;padding-left:11px}.discord-ui .template-panel{padding-left:10px;padding-right:10px}.sidebar-heading{padding-left:16px;font-size:15px}.discord-ui .channel-button{font-size:11px;gap:8px}.sidebar-footer{gap:7px;padding-left:9px}.sidebar-footer strong{font-size:10px}}
+@media(max-width:1150px){.studio-layout{grid-template-columns:60px 185px minmax(0,1fr)}.discord-ui .group-bar{padding-left:4px;padding-right:4px}.discord-ui .library-home{grid-template-columns:minmax(0,1fr) 204px}.workspace-toolbar{padding:0 17px}.workspace-heading{gap:11px}.workspace-heading>span{font-size:10px;padding-left:11px}.discord-ui .template-panel{padding-left:10px;padding-right:10px}.sidebar-heading{padding-left:16px;font-size:15px}.discord-ui .channel-button{font-size:11px;gap:8px}}
 @media(max-width:1000px){.discord-ui .library-home{grid-template-columns:minmax(0,1fr)}.template-panel-slot{display:none}.discord-ui #toggle-template-panel{display:flex}.workspace-heading>span{display:none}.discord-ui .channels-drawer{left:60px}}
 @media(max-width:760px){.studio-layout{grid-template-columns:56px minmax(0,1fr)}.channel-sidebar-slot{display:none}.discord-ui .group-bar{padding:9px 3px}.discord-ui .rail-home,.discord-ui .group-tab,.discord-ui .add-group{width:42px;height:42px;min-height:42px;max-width:42px}.discord-ui .group-tab::after{line-height:42px;font-size:18px}.discord-ui .group-tab::before{left:-9px}.discord-ui .group-tab[aria-selected=true]::before{height:30px}.discord-ui #toggle-channel-sidebar{display:grid;place-items:center;width:30px;height:32px;min-height:32px;padding:0;background:transparent;color:#b2b9c9}.workspace-toolbar{padding:0 12px;gap:9px;min-height:54px;height:54px}.workspace-symbol{display:none}.workspace-heading h2{font-size:14px}.discord-ui .channels-drawer{left:56px;width:min(260px,calc(100vw - 56px))}.discord-ui .gallery-heading{padding-left:15px;padding-right:15px}.discord-ui .saved-gallery{padding-left:15px;padding-right:15px}.discord-ui .timeline-trial-controls{margin-left:15px;margin-right:15px}.discord-ui .title-dropzone{margin-left:15px;margin-right:15px;width:calc(100% - 30px)}.discord-ui .title-drop-help,.discord-ui .title-drop-error,.discord-ui .sabu-empty{margin-left:15px;margin-right:15px}}
-@media(max-width:500px){.discord-ui .library-header{padding:0 9px;height:42px}.discord-ui .library-header h1{font-size:11px}.discord-ui .library-header .app-version{font-size:9px;margin-left:0;padding-left:0}.discord-ui .brand-mark{width:23px;height:23px;font-size:9px}.discord-ui .identity{gap:6px}.discord-ui .header-actions button{min-width:30px;padding:4px 7px}.discord-ui .header-actions button>span{display:none}.discord-ui .header-actions .ui-icon{width:17px;height:17px}.workspace-toolbar{gap:7px;padding-left:9px;padding-right:9px}.discord-ui #toggle-template-panel{font-size:10px;padding:5px 8px;gap:5px}.discord-ui #toggle-template-panel .ui-icon{width:15px;height:15px}.workspace-heading h2{font-size:12px}.discord-ui .gallery-heading{padding:14px 12px 10px;gap:7px}.discord-ui .gallery-heading h2{max-width:95px;font-size:10px}.discord-ui .library-search{font-size:10px}.discord-ui .thumbnail-zoom{font-size:0;gap:0}.discord-ui .thumbnail-zoom input{width:50px}.discord-ui .saved-gallery{padding-left:12px;padding-right:12px;gap:11px}.discord-ui .preset-title{font-size:12px}.discord-ui .preset-subtitle{font-size:10px}.discord-ui .timeline-trial-controls{margin-left:12px;margin-right:12px;padding:9px}.discord-ui .timeline-trial-controls>label{font-size:10px}.discord-ui .timeline-trial-controls button{font-size:9px;min-height:28px}.discord-ui .title-dropzone{margin-left:12px;margin-right:12px;width:calc(100% - 24px);flex-wrap:wrap;justify-content:flex-start;gap:5px 8px}.discord-ui .title-dropzone>span:last-child{width:100%;padding-left:26px}.discord-ui .title-drop-help,.discord-ui .title-drop-error,.discord-ui .sabu-empty{margin-left:12px;margin-right:12px}.discord-ui .studio-drawer{top:42px;height:calc(100vh - 42px)}.discord-ui .editor-dialog{border-radius:0}.discord-ui .small-dialog{padding:19px}.discord-ui .small-dialog h2{font-size:17px}}
+@media(max-width:500px){.discord-ui .library-header{padding:0 9px;height:42px}.discord-ui .header-actions button{min-width:30px;padding:4px 7px}.discord-ui .header-actions button>span{display:none}.discord-ui .header-actions .ui-icon{width:17px;height:17px}.workspace-toolbar{gap:7px;padding-left:9px;padding-right:9px}.discord-ui #toggle-template-panel{font-size:10px;padding:5px 8px;gap:5px}.discord-ui #toggle-template-panel .ui-icon{width:15px;height:15px}.workspace-heading h2{font-size:12px}.discord-ui .gallery-heading{padding:14px 12px 10px;gap:7px}.discord-ui .gallery-heading h2{max-width:95px;font-size:10px}.discord-ui .library-search{font-size:10px}.discord-ui .thumbnail-zoom{font-size:0;gap:0}.discord-ui .thumbnail-zoom input{width:50px}.discord-ui .saved-gallery{padding-left:12px;padding-right:12px;gap:11px}.discord-ui .preset-title{font-size:12px}.discord-ui .preset-subtitle{font-size:10px}.discord-ui .timeline-trial-controls{margin-left:12px;margin-right:12px;padding:9px}.discord-ui .timeline-trial-controls>label{font-size:10px}.discord-ui .timeline-trial-controls button{font-size:9px;min-height:28px}.discord-ui .title-dropzone{margin-left:12px;margin-right:12px;width:calc(100% - 24px);flex-wrap:wrap;justify-content:flex-start;gap:5px 8px}.discord-ui .title-dropzone>span:last-child{width:100%;padding-left:26px}.discord-ui .title-drop-help,.discord-ui .title-drop-error,.discord-ui .sabu-empty{margin-left:12px;margin-right:12px}.discord-ui .studio-drawer{top:42px;height:calc(100vh - 42px)}.discord-ui .editor-dialog{border-radius:0}.discord-ui .small-dialog{padding:19px}.discord-ui .small-dialog h2{font-size:17px}}
 @media(prefers-reduced-motion:reduce){.discord-ui *{scroll-behavior:auto!important;transition:none!important}}
 
 @media(max-width:760px){.timeline-trial-tools{margin-left:15px;margin-right:15px}}
@@ -309,3 +309,142 @@
 #group-delete-copy { color:#c7cbd9; line-height:1.65; overflow-wrap:anywhere }
 #group-actions-dialog .danger-button { margin-left:auto; margin-right:0 }
 #group-action-error:not(:empty) { margin-top:10px }
+
+/* Library navigation shares one toolbar with the file actions. */
+.discord-ui .studio-layout { grid-template-columns:52px 170px minmax(0,1fr) }
+.discord-ui .category-rail { padding:6px 3px; gap:8px; flex-wrap:nowrap }
+.discord-ui .category-rail .rail-category { width:40px; min-height:40px; height:40px; border-radius:11px }
+.discord-ui .sidebar-heading, .discord-ui .workspace-toolbar {
+  min-height:44px; height:44px; padding:0 12px; gap:8px; box-shadow:none
+}
+.discord-ui .sidebar-heading { font-size:13px }
+.sidebar-scroll { padding:8px 6px }
+.sidebar-scroll .channel-list { margin:0 0 10px }
+.sidebar-groups { margin:0 }
+.discord-ui .channel-sidebar .group-tabs, .discord-ui .media-group-tabs { max-height:none }
+.media-group-help { padding:8px 8px 0; font-size:10px }
+.workspace-heading { gap:8px; overflow:hidden }
+.workspace-heading h1 { font-weight:650; color:#f2f3f5; font-size:14px; min-width:0; flex-shrink:0 }
+.workspace-heading > span { padding-left:8px; font-size:12px; color:#b6bbca }
+.workspace-toolbar .header-actions { display:flex; align-items:center; gap:4px; margin-left:auto; flex:none }
+.discord-ui .workspace-toolbar .header-actions button { padding:4px 8px; min-height:32px }
+.discord-ui .saved-library .gallery-heading {
+  display:flex; align-items:center; flex-wrap:nowrap; gap:8px; padding:8px 12px; min-height:0
+}
+.saved-library .gallery-heading .library-search { flex:1 1 auto; margin:0; max-width:420px }
+.saved-library .gallery-heading .thumbnail-zoom { margin-left:auto }
+.discord-ui .main-saved-section { min-height:0 }
+.discord-ui .saved-gallery { padding:2px 12px 12px; gap:10px }
+.discord-ui .preset-open { padding-bottom:7px }
+.discord-ui .preset-title { padding-top:6px }
+.discord-ui .preset-menu { bottom:6px }
+.discord-ui .template-panel { padding:10px 12px; min-height:0 }
+.discord-ui .base-templates { gap:10px; grid-template-columns:repeat(auto-fill,minmax(min(166px,100%),1fr)) }
+.discord-ui .base-template { padding:5px 5px 8px; border-radius:8px }
+.discord-ui .base-template .mode-title { padding:6px 3px 0; font-size:12px; white-space:normal; overflow-wrap:anywhere }
+.discord-ui .base-template .mode-caption { padding:0 3px; font-size:10px }
+.media-collection-toolbar { gap:8px; padding:8px 12px }
+.discord-ui .media-collection-toolbar .library-search { min-width:0; max-width:420px; flex:1 }
+.media-collection-toolbar button { white-space:nowrap; flex:none }
+.discord-ui .empty-group { min-height:100px; padding:16px 12px; gap:6px }
+.discord-ui .empty-group p { margin:0 }
+.discord-ui #empty-open-templates { min-height:32px; padding:4px 12px; color:#e3e5ff; background:#454b71 }
+.discord-ui #status { height:auto; min-height:0; max-height:none; padding:0; overflow:auto }
+#status-text:not(:empty) { display:block; width:100%; padding:3px 10px; color:inherit; font-size:11px; line-height:1.4; max-height:3.4em; overflow:auto }
+.editor-actions #editor-more { position:relative; border:0; margin:0; padding:0; background:none; overflow:visible }
+#editor-more > summary, .editor-actions .compact-label { display:none }
+#editor-more > .extra-actions { display:flex; align-items:center; gap:5px }
+#editor-panes { display:flex; flex:none; gap:3px; padding:3px 6px; border-bottom:1px solid #41434c; background:#282a30 }
+#editor-panes button { min-width:0; flex:1; min-height:32px; padding:3px 6px; font-size:12px; background:transparent; transition:none }
+#editor-panes button[aria-selected=true] { background:#474c66; color:white; box-shadow:inset 0 -2px #a7afff }
+
+@media (max-width:880px) {
+  .discord-ui #editor-dialog { width:100vw; height:100vh; margin:0; border:0; border-radius:0 }
+  .discord-ui #editor-dialog .editor-header { position:relative; z-index:3; flex-wrap:nowrap; min-height:44px; height:44px; padding:3px 6px; gap:5px }
+  .editor-header .editor-identity { flex:1; min-width:0; line-height:1.25 }
+  .editor-header .editor-identity h2 { font-size:12px }
+  .editor-header #editor-source { display:none }
+  .editor-header #editor-dirty { margin:0; font-size:9px; line-height:1.2 }
+  .editor-header #close-editor { min-width:32px; min-height:32px; padding:2px 5px; font-size:11px }
+  .editor-header .editor-actions { width:auto; flex:none; margin-left:0; gap:4px; flex-wrap:nowrap; align-items:center }
+  .discord-ui .editor-actions > button { white-space:nowrap; margin:0; min-height:32px; padding:4px 8px }
+  .discord-ui .editor-actions .compact-label { display:inline; font-size:12px }
+  .discord-ui .editor-actions #editor-save-label, .discord-ui .editor-actions #render > span:not(.compact-label) { display:none }
+  #editor-more > summary {
+    display:grid; place-items:center; min-width:32px; height:32px; border-radius:6px;
+    line-height:1; list-style:none; font-size:20px; background:#383b43; color:#e2e4ed; cursor:pointer
+  }
+  #editor-more > summary::-webkit-details-marker { display:none }
+  #editor-more[open] > .extra-actions {
+    position:absolute; top:calc(100% + 4px); right:0; z-index:5; width:142px; max-height:calc(100vh - 55px); overflow-y:auto;
+    display:grid; gap:2px; padding:5px; border:1px solid #555969; border-radius:8px; background:#25262d; box-shadow:0 6px 18px #10101877
+  }
+  .discord-ui .editor-actions .extra-actions button { margin:0; min-height:32px; padding:4px 7px; font-size:12px; text-align:left }
+  .discord-ui #editor-dialog .workspace { display:block; flex:1; min-width:0; min-height:0; overflow:hidden }
+  .discord-ui #editor-dialog .workspace > :is(.media-panel,.stage-panel,.settings-panel) {
+    width:100%; height:100%; min-width:0; min-height:0; margin:0; overflow:auto; border:0; overscroll-behavior:contain
+  }
+  .discord-ui #editor-dialog .media-panel, .discord-ui #editor-dialog .stage-panel { padding:6px 8px }
+  #pane-media > .pane-heading, #pane-settings > .pane-heading, #pane-media > .import-media, #pane-media > .section-description { display:none }
+  #pane-media .media-controls { float:none; width:100%; margin:0 0 5px; padding:2px 0; display:flex; align-items:center; justify-content:space-between }
+  #pane-media .cards-list { grid-template-columns:repeat(auto-fill,minmax(min(270px,100%),1fr)); gap:6px }
+  #pane-media .card-row { grid-template-columns:72px minmax(0,1fr) auto; grid-template-rows:auto auto; align-items:center; gap:2px 8px; padding:5px }
+  #pane-media .source-thumb { grid-area:1 / 1 / 3 / 2; height:58px; min-width:0 }
+  #pane-media .card-info { grid-area:1 / 2; padding:0 }
+  #pane-media .source-meta { font-size:10px }
+  #pane-media .media-button { grid-area:2 / 2; justify-self:start; min-height:26px; font-size:11px; padding:3px 8px }
+  #pane-media .reorder { grid-area:1 / 3 / 3 / 4; gap:2px }
+  #pane-media .reorder button { width:30px; height:27px; min-height:27px; font-size:11px }
+  #pane-media .card-row.file-drag-over .source-thumb::after { font-size:10px }
+  .discord-ui #pane-preview .preview-panel { height:100%; min-height:185px; flex:1 }
+  .discord-ui #pane-preview .preview-stage { height:auto; min-height:45px }
+  #pane-preview .section-top, #pane-preview .preview-keyboard-help { display:none }
+  #pane-preview .editor-history, #pane-preview .layout-toolbar { padding:3px 6px; min-height:30px }
+  #pane-preview .editor-history button, #pane-preview .layout-toolbar button { min-height:27px; font-size:11px }
+  #pane-settings fieldset { min-width:0 }
+  .discord-ui .editor-status { min-height:0; max-height:3.7em; overflow:auto; padding:3px 8px; line-height:1.45; font-size:11px }
+}
+
+@media (max-width:760px) {
+  .discord-ui .studio-layout { grid-template-columns:46px minmax(0,1fr) }
+  .discord-ui .category-rail { padding:5px 2px; gap:8px }
+  .discord-ui .category-rail .rail-category { width:36px; height:36px; min-height:36px; border-radius:9px }
+  .rail-category[aria-current=page]::before { left:-5px; top:6px; height:24px; width:3px }
+  .discord-ui .workspace-toolbar { height:40px; min-height:40px; padding:0 6px; gap:4px }
+  .workspace-toolbar .workspace-heading { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip:rect(0,0,0,0); clip-path:inset(50%) }
+  .discord-ui #toggle-channel-sidebar { display:flex; align-items:center; gap:6px; min-width:0; max-width:100%; height:32px; width:auto; padding:2px 8px; font-size:13px; color:#eef0f7; background:#3b3e47 }
+  #compact-group-name { overflow:hidden; white-space:nowrap; text-overflow:ellipsis }
+  #compact-group-name::before { content:"#"; color:#acb5ca; margin-right:4px }
+  .discord-ui .workspace-toolbar .header-actions { gap:2px }
+  .discord-ui .workspace-toolbar .header-actions button { padding:3px; width:32px; height:32px; justify-content:center }
+  .workspace-toolbar .header-actions button > span { display:none }
+  #compact-channel-slot { flex:none; padding:4px 8px; background:#2b2d31 }
+  #compact-channel-slot .channel-list { display:flex; flex-direction:row; gap:4px; margin:0 }
+  .discord-ui #compact-channel-slot .channel-button { display:flex; flex:1 1 auto; justify-content:center; width:auto; max-width:none; min-width:0; height:32px; min-height:32px; padding:4px 6px; gap:3px; border-radius:5px; font-size:12px; line-height:1.25; background:transparent; color:#b9bfcc; transition:none }
+  #compact-channel-slot .channel-button > span:not(.channel-count) { flex:0 1 auto }
+  #compact-channel-slot .channel-button .ui-icon, #compact-channel-slot .channel-count { display:none }
+  .discord-ui #compact-channel-slot .channel-button[aria-current=page] { background:#474c66; color:#fff; box-shadow:inset 0 -2px #a7afff }
+  .discord-ui .channels-drawer {
+    position:fixed; inset:40px auto auto 48px; margin:0; padding:0; height:auto;
+    width:min(246px,calc(100vw - 54px)); max-height:calc(100vh - 48px); overflow:auto; border-radius:8px
+  }
+  .discord-ui .channels-drawer::backdrop { background:#10111645; backdrop-filter:none }
+  .channels-drawer .channel-sidebar { height:auto; max-height:inherit }
+  .channels-drawer .sidebar-heading { min-height:36px; height:36px }
+  .channels-drawer .sidebar-scroll { min-height:0; padding:5px 6px }
+  .discord-ui .saved-library .gallery-heading, .media-collection-toolbar { padding:6px 8px; gap:6px }
+  .discord-ui .base-templates { grid-template-columns:repeat(auto-fill,minmax(min(115px,100%),1fr)); gap:6px }
+  .discord-ui .template-panel { padding:6px 8px 10px }
+  .discord-ui .base-template .mode-caption { display:none }
+  .discord-ui .base-template .mode-title { font-size:12px }
+  .discord-ui .saved-gallery { gap:6px; padding:2px 8px 10px }
+}
+@media (max-width:540px) {
+  .discord-ui .studio-workspace .saved-gallery { grid-template-columns:repeat(2,minmax(0,1fr)) }
+  .discord-ui .preset-title { font-size:11px; padding-left:6px; padding-right:27px }
+  .discord-ui .preset-subtitle { padding-left:6px; font-size:10px }
+  .discord-ui .preset-menu { right:2px; bottom:2px; width:27px; height:27px }
+  .discord-ui .library-search { font-size:12px }
+}
+
+.discord-ui .editor-status:empty { padding:0; border:0; min-height:0 }

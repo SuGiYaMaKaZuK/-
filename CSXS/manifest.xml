@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ExtensionManifest Version="7.0"
     ExtensionBundleId="com.cardreveal"
-    ExtensionBundleVersion="0.13.0"
+    ExtensionBundleVersion="0.14.0"
     ExtensionBundleName="Card Reveal カード演出"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
     <ExtensionList>
-        <Extension Id="com.cardreveal.panel" Version="0.13.0"/>
+        <Extension Id="com.cardreveal.panel" Version="0.14.0"/>
     </ExtensionList>
     <ExecutionEnvironment>
         <HostList>
@@ -37,7 +37,7 @@
                     <Menu>Card Reveal カード演出</Menu>
                     <Geometry>
                         <Size><Width>1120</Width><Height>780</Height></Size>
-                        <MinSize><Width>420</Width><Height>540</Height></MinSize>
+                        <MinSize><Width>320</Width><Height>360</Height></MinSize>
                         <MaxSize><Width>3840</Width><Height>2160</Height></MaxSize>
                     </Geometry>
                 </UI>

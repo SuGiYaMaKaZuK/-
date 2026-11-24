@@ -1,14 +1,14 @@
-# Card Reveal Studio v0.13.0
+# Card Reveal Studio v0.14.0
 
 Premiere Pro 2026（26.x）・Windows向けの編集支援パネルです。カードめくり・台形3分割・画像の外周強調を作成し、編集済みの素材として保存できます。DiscordをイメージしたUIで、プラグイン・動画・画像を切り替えます。
 
 ## ダウンロードと更新
 
-1. [更新用ZIPをダウンロード](https://github.com/SuGiYaMaKaZuK/-/raw/refs/heads/main/CardReveal-v0.13.0.zip)します。
+1. [更新用ZIPをダウンロード](https://github.com/SuGiYaMaKaZuK/-/raw/refs/heads/main/CardReveal-v0.14.0.zip)します。
 2. Premiereを終了し、ZIPを右クリックして **すべて展開** します。
 3. 展開した **Install.cmd** を実行します。管理者権限は不要です。
 4. 初回は描画用FFmpegを取得します。Premiereを起動し、**ウィンドウ → エクステンション → Card Reveal カード演出** を開きます。
-5. パネル上部が **v0.13.0** であることを確認してください。
+5. 左端のプラグインアイコンにマウスを置くと、バージョン **v0.14.0** を確認できます。
 
 更新後も保存済みの演出と素材・配置を引き継ぎます。GitHubのCode → Download ZIPから取得した場合は、インストール時にサンプル画像を復元します。
 
@@ -58,7 +58,7 @@ Premiere Pro 2026（26.x）・Windows向けの編集支援パネルです。カ�
 
 一覧は「素材と配置」に登録した素材と、保存した演出で使った素材をまとめたものです。同じ場所の同じ種類の素材は重複をまとめ、使用先を表示します。PC全体のファイル検索は行いません。
 
-**素材と配置で追加** から素材管理を開けます。この一覧でもドロップで一括登録できます。同じファイルをもう一度ドロップすると選んだグループに入り、登録済みの大きさとX/Yを引き継ぎます。グループ分けは素材の参照を整理する機能で、ファイルを移動・複製しません。
+画像・動画一覧の **＋ 追加** から配置を指定して素材を登録できます。ドロップでの一括登録も使えます。同じファイルをもう一度ドロップすると選んだグループに入り、登録済みの大きさとX/Yを引き継ぎます。グループ分けは素材の参照を整理する機能で、ファイルを移動・複製しません。
 
 ## プレビュー・素材と配置
 
@@ -70,7 +70,12 @@ Premiere Pro 2026（26.x）・Windows向けの編集支援パネルです。カ�
 
 ## 狭いパネル・キーボード
 
-狭いパネルでも3アイコンを表示します。グループの切り替えや追加は、中央上部のメニューボタンから行えます。Escapeや閉じるボタンで一覧に戻ります。
+パネルの最小サイズは320 × 360 pxです。ライブラリの幅が760px以下になると、プラグインの「元素材」「作成済みの素材」が上部に並びます。グループを選ぶには、左上の **# グループ名 ▾** を押します。
+
+編集画面の幅が880px以下では、**素材** で画像・動画を入れ、**プレビュー** で配置と再生を確認し、**設定** で大きさ・X/Yやタイミングを調整できます。上部に **保存** と **書き出し** があり、**⋯** から素材と配置の読み込み、別名保存、JSON保存、サンプルを開けます。
+
+![小さいパネルのライブラリ](https://raw.githubusercontent.com/SuGiYaMaKaZuK/-/main/docs/compact-library-preview.png)
+![小さいパネルの編集画面](https://raw.githubusercontent.com/SuGiYaMaKaZuK/-/main/docs/compact-editor-preview.png)
 
 ![狭いパネルのグループ一覧](https://github.com/SuGiYaMaKaZuK/-/raw/refs/heads/main/docs/channels-narrow-preview.png)
 
@@ -90,7 +95,7 @@ Premiere Pro 2026（26.x）・Windows向けの編集支援パネルです。カ�
 
 ## 開発・確認状況
 
-`npm test` でモデル・ファイル処理・互換性・素材グループを確認します。PlaywrightとChromiumを用意して `node tests/ui-smoke.cjs`、`node tests/editing-ui-smoke.cjs`、`node tests/channels-ui-smoke.cjs`、`node tests/file-drop-ui-smoke.cjs` を実行できます。動画確認にはFFmpeg・ffprobeを使用します。パネル利用時にnpmの導入は不要です。
+`npm test` でモデル・ファイル処理・互換性・素材グループを確認します。PlaywrightとChromiumを用意して `node tests/ui-smoke.cjs`、`node tests/editing-ui-smoke.cjs`、`node tests/channels-ui-smoke.cjs`、`node tests/file-drop-ui-smoke.cjs`、`node tests/compact-layout-ui-smoke.cjs` を実行できます。動画確認にはFFmpeg・ffprobeを使用します。パネル利用時にnpmの導入は不要です。
 
 画面写真はサンプル素材を使い、実際のパネルを操作して撮影したものです。Premiereの通信は模擬しています。**WindowsのインストーラーとPremiere Pro 2026実機での連携は未検証です。** 詳細は検証結果.txtを参照してください。
 
