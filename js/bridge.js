@@ -1,7 +1,7 @@
 (function () {
   'use strict';
   var api = window.CardBridge = { hasHost: false };
-  var connection = { version: '0.14.0', cepAvailable: !!(window.__adobe_cep__ && typeof window.__adobe_cep__.evalScript === 'function'), nodeAvailable: false, ready: false, initializationError: null, lastRequest: null }, requestId = 0;
+  var connection = { version: '0.15.0', cepAvailable: !!(window.__adobe_cep__ && typeof window.__adobe_cep__.evalScript === 'function'), nodeAvailable: false, ready: false, initializationError: null, lastRequest: null }, requestId = 0;
   api.mediaTypeForName = function (name) {
     if (/\.(png|jpe?g|webp|bmp|tiff?)$/i.test(name)) return 'image';
     if (/\.(mp4|mov|m4v|avi|mkv|webm|mts|m2ts|mxf)$/i.test(name)) return 'video';

@@ -48,12 +48,15 @@ foreach ($sampleName in @('boss', 'treasure', 'quest')) {
 
 if (-not [string]::Equals($sourcePath, $extensionPath, [StringComparison]::OrdinalIgnoreCase)) {
     New-Item -ItemType Directory -Path $extensionPath -Force | Out-Null
-    # 過去の出力や既存ファイルを一括削除せず、配布ファイルだけを上書きします。
-    $excludedNames = @('.git', 'node_modules', 'dist', 'artifacts', 'tests', 'test-results', 'outputs')
-    foreach ($entry in Get-ChildItem -LiteralPath $sourcePath -Force) {
-        if ($entry.Name -notin $excludedNames) {
-            Copy-Item -LiteralPath $entry.FullName -Destination $extensionPath -Recurse -Force
-        }
+    # GitHub のソース ZIP にある過去の配布物・画面写真をインストール先にコピーしない。
+    foreach ($entryName in @('CSXS', 'css', 'js', 'bin', 'index.html', 'Install.cmd', 'install-windows.ps1', 'uninstall-windows.ps1', 'LICENSE', 'README.md', '使い方.txt')) {
+        Copy-Item -LiteralPath (Join-Path $sourcePath $entryName) -Destination $extensionPath -Recurse -Force
+    }
+    $exampleTarget = Join-Path $extensionPath 'examples\media'
+    New-Item -ItemType Directory -Path $exampleTarget -Force | Out-Null
+    foreach ($sampleName in @('boss.png', 'treasure.png', 'quest.png')) {
+        $exampleFile = Join-Path $sourcePath ('examples\media\' + $sampleName)
+        Copy-Item -LiteralPath $exampleFile -Destination $exampleTarget -Force
     }
 }
 

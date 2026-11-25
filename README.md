@@ -1,16 +1,22 @@
-# Card Reveal Studio v0.14.0
+# Card Reveal Studio v0.15.0
 
 Premiere Pro 2026（26.x）・Windows向けの編集支援パネルです。カードめくり・台形3分割・画像の外周強調を作成し、編集済みの素材として保存できます。DiscordをイメージしたUIで、プラグイン・動画・画像を切り替えます。
 
 ## ダウンロードと更新
 
-1. [更新用ZIPをダウンロード](https://github.com/SuGiYaMaKaZuK/-/raw/refs/heads/main/CardReveal-v0.14.0.zip)します。
+1. [更新用ZIPをダウンロード](https://github.com/SuGiYaMaKaZuK/-/raw/refs/heads/main/CardReveal-v0.15.0.zip)します。
 2. Premiereを終了し、ZIPを右クリックして **すべて展開** します。
 3. 展開した **Install.cmd** を実行します。管理者権限は不要です。
 4. 初回は描画用FFmpegを取得します。Premiereを起動し、**ウィンドウ → エクステンション → Card Reveal カード演出** を開きます。
-5. 左端のプラグインアイコンにマウスを置くと、バージョン **v0.14.0** を確認できます。
+5. 左端のプラグインアイコンにマウスを置くと、バージョン **v0.15.0** を確認できます。
 
 更新後も保存済みの演出と素材・配置を引き継ぎます。GitHubのCode → Download ZIPから取得した場合は、インストール時にサンプル画像を復元します。
+
+## 軽量版の変更
+
+プレビューは再生中だけ定期更新します。素材と配置の一覧は、開いた画面に必要なサムネイルを読み込みます。素材検索では、グループごとの素材一覧を再利用します。
+
+元の画像・動画を参照して、これまでと同じ解像度・フレームレート・ProRes 4444設定で書き出します。更新用ZIPにはパネルとサンプル画像、インストーラー、使い方を収録しています。
 
 ## 左端は3つのアイコン
 
@@ -95,8 +101,8 @@ Premiere Pro 2026（26.x）・Windows向けの編集支援パネルです。カ�
 
 ## 開発・確認状況
 
-`npm test` でモデル・ファイル処理・互換性・素材グループを確認します。PlaywrightとChromiumを用意して `node tests/ui-smoke.cjs`、`node tests/editing-ui-smoke.cjs`、`node tests/channels-ui-smoke.cjs`、`node tests/file-drop-ui-smoke.cjs`、`node tests/compact-layout-ui-smoke.cjs` を実行できます。動画確認にはFFmpeg・ffprobeを使用します。パネル利用時にnpmの導入は不要です。
+`npm test` でモデル・ファイル処理・互換性・素材グループを確認します。PlaywrightとChromiumを用意して `node tests/ui-smoke.cjs`、`node tests/editing-ui-smoke.cjs`、`node tests/channels-ui-smoke.cjs`、`node tests/file-drop-ui-smoke.cjs`、`node tests/compact-layout-ui-smoke.cjs`、`node tests/performance-ui-smoke.cjs` を実行できます。動画確認にはFFmpeg・ffprobeを使用します。パネル利用時にnpmの導入は不要です。
 
-画面写真はサンプル素材を使い、実際のパネルを操作して撮影したものです。Premiereの通信は模擬しています。**WindowsのインストーラーとPremiere Pro 2026実機での連携は未検証です。** 詳細は検証結果.txtを参照してください。
+画面写真はサンプル素材を使い、実際のパネルを操作して撮影したものです。Premiereの通信は模擬しています。**WindowsのインストーラーとPremiere Pro 2026実機での連携は未検証です。** [検証結果を見る](https://github.com/SuGiYaMaKaZuK/-/blob/main/検証結果.txt)
 
 導入先は `%APPDATA%\Adobe\CEP\extensions\com.cardreveal.panel` です。ローカル開発版を表示するため、インストーラーはHKCUのCSXS.12 PlayerDebugModeを1にします。FFmpegは固定リリースから取得し、SHA-256を照合します。削除にはuninstall-windows.ps1を使います。
