@@ -6,17 +6,45 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const highlight = require('../js/highlight');
+const model = require('../js/model');
 const { project, sprite } = require('./alpha-fixtures.cjs');
 const renderer = require('../js/render');
 
 function pixel(data, width, x, y) { return Array.from(data.subarray((y * width + x) * 4, (y * width + x) * 4 + 4)); }
-function band(p) { return p[0] > 175 && p[1] > 175 && p[2] < 100 && p[3] > 165; }
+function band(p, minAlpha = 165) { return p[0] > 175 && p[1] > 175 && p[2] < 100 && p[3] > minAlpha; }
+test('natural outline keeps artwork clear and feathers into a short neutral shadow', () => {
+  const settings = project().highlight, image = sprite();
+  const alpha = highlight.alphaPlane(image.pixels);
+  const source = { ...image, alpha, rect: {x:0,y:0,width:96,height:64} };
+  settings.layers = model.defaultHighlight({}).layers;
+  function draw() {
+    const r = highlight.raster(settings, 1, source);
+    return (x,y) => pixel(r.pixels, r.width, x+r.padding, y+r.padding);
+  }
+  let at = draw();
+  for (let y=0;y<64;y++) for (let x=0;x<96;x++) if (alpha[y*96+x]) assert.equal(at(x,y)[3],0);
+  const rim = at(16,36), shadow = at(13,36);
+  assert.ok(rim[3]>175 && Math.max(...rim.slice(0,3))-Math.min(...rim.slice(0,3))<25);
+  assert.ok(shadow[0]<95 && shadow[3]>10 && shadow[3]<80);
+  const wisp=at(20,9);
+  assert.ok(wisp[3]>60 && wisp[3]<100, 'a 38% opaque strand has a proportionately soft rim');
+  assert.equal(at(7,36)[3],0);
+  const fullEdge = at(15,36)[3];
+  for (let y=13;y<53;y++) alpha[y*96+17]=96;
+  at=draw();
+  assert.ok(at(15,36)[3]<fullEdge, 'a partly covered boundary gives the falling edge a subpixel position');
+  assert.equal(at(17,36)[3],0);
+  // A deliberately inset layer still crosses the inside edge. The wide outer glow cannot tint it.
+  settings.layers=[model.highlightLayer('外側','#ffff00',8,30,1,1),model.highlightLayer('内側','#ff0000',2,0,-2,1)];
+  at=draw();assert.deepEqual(at(18,36),[255,0,0,255]);assert.equal(at(28,20)[3],0);
+});
 test('subject edges, holes, faint disconnected features and empty alpha use the same layered distance field', () => {
   const settings = project().highlight, image = sprite(), alpha = highlight.alphaPlane(image.pixels);
   const rect = { x: 0, y: 0, width: 96, height: 64 };
   const rendered = highlight.raster(settings, 1, { ...image, rect, alpha });
   const at = (x,y) => pixel(rendered.pixels, rendered.width, x + rendered.padding, y + rendered.padding);
-  for (const [x,y] of [[16,35],[26,30],[60,13],[20,9]]) assert.ok(band(at(x,y)), [x,y]);
+  for (const [x,y] of [[16,35],[26,30]]) assert.ok(band(at(x,y)), [x,y]);
+  for (const [x,y] of [[60,13],[20,9]]) assert.ok(band(at(x,y),75) && at(x,y)[3]<=96, [x,y]);
   for (const [x,y] of [[0,32],[10,2],[33,32],[85,55]]) assert.equal(at(x,y)[3], 0);
   assert.ok(at(13,35)[3] > 0 && at(13,35)[3] < at(16,35)[3]);
   const blank = highlight.raster(settings, 1, { ...image, rect, alpha: new Uint8Array(96*64) });
@@ -41,7 +69,7 @@ test('export follows actual PNG and moving video alpha; fixed frames, opaque med
     card.mediaPath = save('cutout.png',sprite()); card.mediaType = 'image';
     delete p.highlight.followAlpha; // previously saved JSON, opened without a migration step
     let at = await frames('cutout');
-    assert.ok(band(at(0,16,35))); assert.ok(band(at(0,26,30))); assert.ok(band(at(0,60,13)));
+    assert.ok(band(at(0,16,35))); assert.ok(band(at(0,26,30))); assert.ok(band(at(0,60,13),75));
     assert.equal(at(0,0,32)[3],0); assert.equal(at(0,33,32)[3],0);
     assert.ok(at(0,20,36)[2] > 155); assert.ok(Math.abs(at(0,63,13)[3]-96)<20);
     p.highlight.followAlpha=false;
@@ -61,6 +89,24 @@ test('export follows actual PNG and moving video alpha; fixed frames, opaque med
     assert.ok(band(at(1,16,35)));assert.ok(band(at(2,34,35)));assert.equal(at(2,16,35)[3],0);assert.ok(band(at(5,34,35)));
     card.mediaOffset=0.1;
     at=await frames('trimmed');assert.ok(band(at(0,16,35)));assert.ok(band(at(1,34,35)));
+    const customLayers = p.highlight.layers;
+    p.highlight.layers = model.defaultHighlight(p).layers;
+    const natural = await frames('natural-video');
+    p.highlight.layers = [];
+    const clean = await frames('source-video');
+    for (const [t,shift] of [[0,0],[1,18],[5,18]]) {
+      for (const [x,y] of [[17,35],[48,35],[21,9],[61,13]]) {
+        const a=natural(t,x+shift,y), b=clean(t,x+shift,y);
+        assert.ok(a.slice(0,3).every((v,i)=>Math.abs(v-b[i])<=9), [t,x,y,a,b]);
+        assert.ok(Math.abs(a[3]-b[3])<=1, [t,x,y,a,b]);
+      }
+      const rim=natural(t,16+shift,35);
+      assert.ok(rim[3]>175 && rim[2]>170);
+      const wispRim=natural(t,20+shift,9);
+      assert.ok(wispRim[3]>60 && wispRim[3]<100);
+      assert.equal(natural(t,7+shift,35)[3],0);
+    }
+    p.highlight.layers = customLayers;
     const webm=path.join(work,'motion.webm');
     command(['-framerate','10','-i',path.join(work,'f%02d.png'),'-c:v','libvpx-vp9','-lossless','1','-pix_fmt','yuva420p',webm]);
     card.mediaPath=webm;card.mediaOffset=0;at=await frames('webm');

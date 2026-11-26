@@ -86,7 +86,7 @@
   function placedSilhouette(geom, source, scale, frame) {
     var rect = source.rect, sw = source.width, sh = source.height, alpha = source.alpha;
     if (!alpha || alpha.length !== sw * sh || !rect || !(rect.width > 0 && rect.height > 0)) throw new Error('素材の透明度を読み取れません。');
-    var inside = new Uint8Array(frame.width * frame.height), peak = 0;
+    var coverage = new Uint8Array(frame.width * frame.height), peak = 0;
     // The threshold stays low enough for fine hair, and adapts to faint artwork.
     for (var i = 0; i < alpha.length && peak < 32; i++) peak = Math.max(peak, alpha[i]);
     if (!peak) return null;
@@ -102,8 +102,9 @@
         var sx = clamp(localX * scaleX - 0.5, 0, sw - 1), left = Math.floor(sx), right = Math.min(left + 1, sw - 1), fx = sx - left;
         var a = alpha[top * sw + left] * (1 - fx) + alpha[top * sw + right] * fx;
         var b = alpha[bottom * sw + left] * (1 - fx) + alpha[bottom * sw + right] * fx;
-        if (a * (1 - fy) + b * fy < threshold) continue;
-        inside[(y + frame.padding) * frame.width + x + frame.padding] = 1;
+        var value = Math.round(a * (1 - fy) + b * fy);
+        coverage[(y + frame.padding) * frame.width + x + frame.padding] = value;
+        if (value < threshold) continue;
         leftEdge = Math.min(leftEdge, x); rightEdge = Math.max(rightEdge, x);
         topEdge = Math.min(topEdge, y); bottomEdge = y;
       }
@@ -111,36 +112,57 @@
     if (rightEdge < 0) return null;
     // Transparent margins beyond the furthest layer need no distance field.
     var width = rightEdge - leftEdge + 1 + frame.padding * 2, height = bottomEdge - topEdge + 1 + frame.padding * 2;
-    if (width === frame.width && height === frame.height) return { x: 0, y: 0, width: width, height: height, inside: inside };
+    if (width === frame.width && height === frame.height) return { x: 0, y: 0, width: width, height: height, coverage: coverage, threshold: threshold };
     var cropped = new Uint8Array(width * height);
     for (var row = 0; row < height; row++) {
       var start = (row + topEdge) * frame.width + leftEdge;
-      cropped.set(inside.subarray(start, start + width), row * width);
+      cropped.set(coverage.subarray(start, start + width), row * width);
     }
-    return { x: leftEdge, y: topEdge, width: width, height: height, inside: cropped };
+    return { x: leftEdge, y: topEdge, width: width, height: height, coverage: cropped, threshold: threshold };
   }
-  // Exact Euclidean distance to opposite-class pixel centers, in two separable passes.
-  // Subtract half a pixel to place a straight edge between the two centers.
-  function silhouetteDistances(inside, width, height) {
-    var field = new Float32Array(inside.length), result = new Float32Array(inside.length);
+  // Distance to the nearest contour. Keep the nearest row as well as the distance
+  // so a partially covered edge pixel can place the outer line between pixels.
+  function silhouetteDistances(region, includeInterior) {
+    var coverage = region.coverage, threshold = region.threshold, width = region.width, height = region.height;
+    var field = new Float32Array(coverage.length), result = new Float32Array(coverage.length);
     var sites = new Int32Array(width), limits = new Float64Array(width);
+    var verticalSquared = new Float32Array(width), edgeInset = new Float32Array(width), edgeOpacity = new Float32Array(width);
     var far = width + height + 1;
-    for (var target = 0; target <= 1; target++) {
+    // An exterior outline only needs distances to foreground pixels.
+    for (var target = includeInterior ? 0 : 1; target <= 1; target++) {
+      var foreground = target === 1;
       for (var x = 0; x < width; x++) {
         var d = far;
-        for (var i = x; i < field.length; i += width) { d = inside[i] === target ? 0 : Math.min(d + 1, far); field[i] = d; }
+        for (var i = x; i < field.length; i += width) { d = (coverage[i] >= threshold) === foreground ? 0 : Math.min(d + 1, far); field[i] = d; }
         d = far;
         for (i = field.length - width + x; i >= 0; i -= width) {
-          d = Math.min(d + 1, field[i]); field[i] = d * d;
+          d = (coverage[i] >= threshold) === foreground ? 0 : Math.min(d + 1, far);
+          if (d < field[i]) field[i] = -d;
         }
       }
       for (var row = 0; row < field.length; row += width) {
+        for (var col = 0; col < width; col++) {
+          var dy = field[row + col];
+          verticalSquared[col] = dy * dy;
+          edgeInset[col] = 0;
+          if (foreground && Math.abs(dy) < far) {
+            var seed = row + col - dy * width, value = coverage[seed], peak = value;
+            // A feathered opaque edge and a translucent wisp may have the same
+            // alpha at their tips. A 3x3 neighborhood captures the local material
+            // opacity. All foreground sites have at least three pixels of padding.
+            if (value < 255) peak = Math.max(value, coverage[seed-1], coverage[seed+1],
+              coverage[seed-width-1], coverage[seed-width], coverage[seed-width+1],
+              coverage[seed+width-1], coverage[seed+width], coverage[seed+width+1]);
+            edgeInset[col] = 1 - value / peak;
+            edgeOpacity[col] = peak / 255;
+          }
+        }
         var last = 0; sites[0] = 0; limits[0] = -Infinity;
         for (var q = 1; q < width; q++) {
           var crossing;
           while (true) {
             var p = sites[last];
-            crossing = ((field[row + q] - field[row + p]) / (q - p) + q + p) / 2;
+            crossing = ((verticalSquared[q] - verticalSquared[p]) / (q - p) + q + p) / 2;
             if (crossing > limits[last]) break;
             last--;
           }
@@ -149,24 +171,28 @@
         var active = 0;
         for (q = 0; q < width; q++) {
           while (active < last && limits[active + 1] < q) active++;
-          if (inside[row + q] === target) continue;
           var nearest = sites[active], dx = q - nearest;
-          var edge = Math.sqrt(dx * dx + field[row + nearest]) - 0.5;
+          // The final pass can reuse this row of scratch storage for the exterior matte.
+          if (foreground) field[row + q] = Math.max(0, 1 - coverage[row + q] / threshold) * edgeOpacity[nearest];
+          if ((coverage[row + q] >= threshold) === foreground) continue;
+          var edge = Math.sqrt(dx * dx + verticalSquared[nearest]) - 0.5 + edgeInset[nearest];
           result[row + q] = target ? edge : -edge;
         }
       }
     }
-    return result;
+    return { distances: result, exterior: field };
   }
   function raster(settings, scale, source) {
     scale = scale === undefined ? 1 : scale;
     var geom = geometry(settings, scale), stack = layers(settings, scale), size = frameSize(settings, scale);
-    var padding = size.padding, result = allocate(geom, padding), count = result.width * result.height, distances, region;
+    var padding = size.padding, result = allocate(geom, padding), count = result.width * result.height, distances, exteriorMatte, region, includeInterior = false;
     if (!stack.length) return result;
     if (source) {
       region = placedSilhouette(geom, source, scale, result);
       if (!region) return result;
-      distances = silhouetteDistances(region.inside, region.width, region.height);
+      includeInterior = stack.some(function (layer) { return layer.offset < 0 && layer.opacity > 0 && (layer.width > 0 || layer.glow > 0); });
+      var outlined = silhouetteDistances(region, includeInterior);
+      distances = outlined.distances; exteriorMatte = outlined.exterior;
       count = distances.length;
     } else {
       distances = new Float32Array(count);
@@ -177,6 +203,10 @@
     // Accumulate premultiplied RGB in scalars to avoid four more full-frame
     // buffers. Only the reusable distance field and the output occupy the frame.
     for (var pixel = 0; pixel < count; pixel++) {
+      // Keep an exterior layer off the artwork, including translucent hair and fabric.
+      // Taper through the very faint fringe rather than creating a hard alpha cutoff.
+      var exterior = exteriorMatte ? exteriorMatte[pixel] : 1;
+      if (!exterior && !includeInterior) continue;
       var red = 0, green = 0, blue = 0, alpha = 0;
       for (var layerIndex = 0; layerIndex < stack.length; layerIndex++) {
         var layer = stack[layerIndex];
@@ -186,7 +216,7 @@
         var fromBand = Math.max(0, fromCenter - halfWidth);
         var stroke = layer.width > 0 ? clamp(halfWidth + 0.5 - fromCenter, 0, Math.min(1, layer.width)) : 0;
         var glow = layer.glow > 0 && fromBand <= 3 * layer.glow ? 0.65 * Math.exp(-fromBand * fromBand / (2 * layer.glow * layer.glow)) : 0;
-        var coverage = Math.max(stroke, glow) * layer.opacity;
+        var coverage = Math.max(stroke, glow) * layer.opacity * (layer.offset < 0 ? 1 : exterior);
         if (!coverage) continue;
         var remainder = 1 - coverage;
         red = layer.red * coverage + red * remainder;

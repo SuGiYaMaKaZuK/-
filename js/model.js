@@ -19,9 +19,9 @@
     var w=Number.isFinite(project.width)?project.width:1920,h=Number.isFinite(project.height)?project.height:1080;
     return {x:w/2,y:h/2,width:Math.max(16,Math.round(w*.44)),height:Math.max(16,Math.round(h*.72)),rotation:0,shape:'rounded',radius:28,followAlpha:true,
       points:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],layers:[
-        highlightLayer('外側の光','#ffe600',12,30,10,.85),
-        highlightLayer('黄色の枠','#ffe600',8,4,6,1),
-        highlightLayer('白い縁','#ffffff',3,0,1,1)
+        highlightLayer('薄い影','#302e38',2,2,2,.32),
+        highlightLayer('縁のぼかし','#ded8cf',0,1,1,.23),
+        highlightLayer('細い縁','#fff9ee',2,0,1,.77)
       ]};
   }
   function upgrade(project) {
@@ -265,5 +265,5 @@
     });
     return errors;
   }
-  return { createProject:createProject, upgrade:upgrade, validate:validate, pose:pose, mediaRect:mediaRect, resizeCards:resizeCards, reorder:reorder, layout:layout, arrange:arrange, sequence:sequence, setMode:setMode, splitPolygons:splitPolygons, splitPose:splitPose, defaultHighlight:defaultHighlight, highlightPolygonValid:highlightPolygonValid, addHighlightLayer:addHighlightLayer, reorderHighlightLayer:reorderHighlightLayer, addHighlightPoint:addHighlightPoint, removeHighlightPoint:removeHighlightPoint };
+  return { createProject:createProject, upgrade:upgrade, validate:validate, pose:pose, mediaRect:mediaRect, resizeCards:resizeCards, reorder:reorder, layout:layout, arrange:arrange, sequence:sequence, setMode:setMode, splitPolygons:splitPolygons, splitPose:splitPose, defaultHighlight:defaultHighlight, highlightLayer:highlightLayer, highlightPolygonValid:highlightPolygonValid, addHighlightLayer:addHighlightLayer, reorderHighlightLayer:reorderHighlightLayer, addHighlightPoint:addHighlightPoint, removeHighlightPoint:removeHighlightPoint };
 }));

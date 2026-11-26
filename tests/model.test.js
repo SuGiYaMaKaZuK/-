@@ -183,12 +183,12 @@ test('highlight mode preserves other cards and works independently of reveal tim
 
 test('highlight layers are independent, ordered and bounded without changing material settings', () => {
   const p=model.createProject();model.setMode(p,'highlight');
-  const originalSource=JSON.stringify(p.cards[0]),first=p.highlight.layers[0];
+  const originalSource=JSON.stringify(p.cards[0]),first=p.highlight.layers[0],originalLayer={...first};
   const id=model.addHighlightLayer(p),added=p.highlight.layers.find(l=>l.id===id);
   added.color='#00ccff';added.glow=12;added.width=2;
   model.reorderHighlightLayer(p,3,0);
   assert.equal(p.highlight.layers[0],added);assert.equal(p.highlight.layers[1],first);
-  assert.equal(first.color,'#ffe600');assert.equal(JSON.stringify(p.cards[0]),originalSource);
+  assert.deepEqual(first,originalLayer);assert.equal(JSON.stringify(p.cards[0]),originalSource);
   while(p.highlight.layers.length<12)model.addHighlightLayer(p);
   const snapshot=JSON.stringify(p);
   assert.throws(()=>model.addHighlightLayer(p),/12/);assert.equal(JSON.stringify(p),snapshot);

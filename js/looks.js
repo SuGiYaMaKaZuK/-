@@ -30,11 +30,14 @@
       draft.duration=Math.max(draft.duration,Math.ceil(end));
     }else if(spec.mode==='trapezoid')draft.trapezoid.angle=spec.angle;
     else {
-      var layers=Model.defaultHighlight(draft).layers;
+      var layers;
       if(spec.id==='highlight-white'){
-        layers=[layers[2]];layers[0].name='白い枠';layers[0].width=4;layers[0].glow=0;layers[0].offset=0;
-      }else if(spec.id==='highlight-cyan'){
-        layers[0].color='#28c7ff';layers[0].name='青い光';layers[1].color='#28c7ff';layers[1].name='シアンの枠';
+        layers=[Model.highlightLayer('白い枠','#ffffff',4,0,0,1)];
+      }else{
+        var cyan=spec.id==='highlight-cyan',color=spec.colors[0];
+        layers=[Model.highlightLayer(cyan?'青い光':'外側の光',color,12,30,10,.85),
+          Model.highlightLayer(cyan?'シアンの枠':'黄色の枠',color,8,4,6,1),
+          Model.highlightLayer('白い縁','#ffffff',3,0,1,1)];
       }
       draft.highlight.layers=layers;
     }
