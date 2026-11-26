@@ -7,6 +7,10 @@ const path = require('path');
 const os = require('os');
 const childProcess = require('child_process');
 const model = require('./model');
+const highlight = require('./highlight');
+const alphaSource = require('./alpha-source');
+const { Readable } = require('stream');
+const { pipeline } = require('stream/promises');
 
 function activeCards(project) { return project.mode === 'trapezoid' ? project.cards.slice(0, 3) : project.mode === 'highlight' ? project.cards.slice(0, 1) : project.cards; }
 
@@ -97,6 +101,7 @@ function validate(project, outputPath) {
     number(highlight.height, '縁取り画像の高さ', 16, 2160, true);
     number(highlight.rotation, '縁取り画像の回転', -180, 180);
     number(highlight.radius, '縁取り画像の角丸', 0, 500);
+    if (highlight.followAlpha !== undefined && typeof highlight.followAlpha !== 'boolean') throw new Error('透過素材の輪郭設定を確認してください。');
     if (['rounded', 'rectangle', 'polygon'].indexOf(highlight.shape) === -1) throw new Error('縁取りの形を選び直してください。');
     if (highlight.shape === 'polygon') {
       if (!Array.isArray(highlight.points) || highlight.points.length < 3 || highlight.points.length > 12) throw new Error('多角形の頂点は3〜12個にしてください。');
@@ -167,7 +172,7 @@ async function checkMedia(project, options) {
       let stdout = '';
       let details = '';
       let dimensionBuffer = '';
-      let dimensions = null;
+      let dimensions = null, pixelFormat, header = '';
       let aborted = false;
       const abort = function () { aborted = true; child.kill(); };
       if (options.signal) options.signal.addEventListener('abort', abort, { once: true });
@@ -176,7 +181,10 @@ async function checkMedia(project, options) {
         const text = chunk.toString();
         // showinfo's frame line can precede large HDR/SEI side data. Remember
         // dimensions as they arrive, independently of the truncated error log.
+        if (!dimensions && header.length < 32768) header += text.slice(0, 32768 - header.length);
         dimensionBuffer += text;
+        const format = /\bfmt:(\w+)\s/.exec(dimensionBuffer);
+        if (format) pixelFormat = format[1];
         const size = /\bs:(\d+)x(\d+)\b/.exec(dimensionBuffer);
         if (size) dimensions = { width: Number(size[1]), height: Number(size[2]) };
         dimensionBuffer = dimensionBuffer.slice(-512);
@@ -200,7 +208,7 @@ async function checkMedia(project, options) {
           reject(failure('MEDIA_DIMENSIONS_UNKNOWN', cardLabel(card, index) + 'の画像サイズを確認できません。素材を選び直すか、別の画像・動画形式に変換してお試しください。', details));
           return;
         }
-        resolve(dimensions);
+        resolve(Object.assign(dimensions, { pixelFormat, decoder: alphaSource.webmDecoder(header) }));
       });
     });
   }
@@ -370,7 +378,7 @@ function buildTrapezoidArgs(project, outputPath, sources) {
 }
 
 function buildHighlightArgs(project, outputPath, sources, assets) {
-  if (!assets || !assets.borderPath || !assets.maskPath || !fs.existsSync(assets.borderPath) || !fs.existsSync(assets.maskPath)) {
+  if (!assets || (!assets.videoBorders && !(assets.borderPath && fs.existsSync(assets.borderPath))) || !assets.maskPath || !fs.existsSync(assets.maskPath)) {
     throw failure('HIGHLIGHT_ASSETS_REQUIRED', '縁取りの描画データがありません。書き出し処理から実行してください。');
   }
   number(assets.width, '縁取りの描画幅', 16, 8192, true);
@@ -387,6 +395,7 @@ function buildHighlightArgs(project, outputPath, sources, assets) {
   if (card.mediaPath) {
     if (card.mediaType === 'image') args.push('-loop', '1', '-framerate', String(fps));
     else if (card.mediaOffset) args.push('-ss', String(card.mediaOffset));
+    if (sources && sources[0] && sources[0].decoder) args.push('-c:v', sources[0].decoder);
     args.push('-i', card.mediaPath);
     frame = mediaFrame(graph, input, 'highlight', settings.width, settings.height, project, card, 0, sources && sources[0]);
     input += 1;
@@ -396,14 +405,28 @@ function buildHighlightArgs(project, outputPath, sources, assets) {
   }
   const borderInput = input++;
   const maskInput = input;
-  args.push('-loop', '1', '-framerate', String(fps), '-i', assets.borderPath, '-loop', '1', '-framerate', String(fps), '-i', assets.maskPath);
+  let borderStream = borderInput + ':v', maskStream = 'highlightMask';
+  if (assets.videoBorders) {
+    // The extra scanline carries one flag for this frame: keep the source's full
+    // alpha (255), or use the selected geometric crop on an opaque source (0).
+    args.push('-f', 'rawvideo', '-pixel_format', 'rgba', '-video_size', assets.width + 'x' + (assets.height + 1), '-framerate', String(fps), '-i', 'pipe:0');
+    graph.push('[' + borderStream + ']split[borderRows][modeRow]');
+    graph.push('[borderRows]crop=' + assets.width + ':' + assets.height + ':0:0:exact=1[subjectBorder]');
+    graph.push('[modeRow]crop=1:1:0:' + assets.height + ':exact=1,alphaextract,scale=' + settings.width + ':' + settings.height + ':flags=neighbor[subjectMode]');
+    borderStream = 'subjectBorder';
+  } else args.push('-loop', '1', '-framerate', String(fps), '-i', assets.borderPath);
+  args.push('-loop', '1', '-framerate', String(fps), '-i', assets.maskPath);
   graph.push('[' + maskInput + ':v]format=rgba,alphaextract[highlightMask]');
+  if (assets.videoBorders) {
+    graph.push('[highlightMask][subjectMode]blend=all_mode=lighten[activeShapeMask]');
+    maskStream = 'activeShapeMask';
+  }
   graph.push('[' + frame + ']split[highlightRGB][highlightAlphaSource]');
   graph.push('[highlightAlphaSource]alphaextract[highlightAlpha]');
-  graph.push('[highlightAlpha][highlightMask]blend=all_mode=multiply[highlightMaskedAlpha]');
+  graph.push('[highlightAlpha][' + maskStream + ']blend=all_mode=multiply[highlightMaskedAlpha]');
   graph.push('[highlightRGB][highlightMaskedAlpha]alphamerge[highlightClipped]');
   graph.push('[highlightClipped]pad=' + assets.width + ':' + assets.height + ':' + assets.padding + ':' + assets.padding + ':color=black@0[highlightPadded]');
-  graph.push('[highlightPadded][' + borderInput + ':v]overlay=0:0:format=auto[highlightDecorated]');
+  graph.push('[highlightPadded][' + borderStream + ']overlay=0:0:format=auto[highlightDecorated]');
   let rotated = 'highlightDecorated';
   if (settings.rotation === 90 || settings.rotation === -90) {
     graph.push('[highlightDecorated]transpose=' + (settings.rotation === 90 ? 'clock' : 'cclock') + '[highlightRotated]');
@@ -426,13 +449,47 @@ function buildHighlightArgs(project, outputPath, sources, assets) {
   return args;
 }
 
-function writeHighlightAssets(project, directory) {
-  const highlight = require('./highlight');
-  const border = highlight.raster(project.highlight, 1);
-  const mask = highlight.mask(project.highlight, 1);
-  const assets = { borderPath: path.join(directory, 'border.png'), maskPath: path.join(directory, 'mask.png'), width: border.width, height: border.height, padding: border.padding };
-  fs.writeFileSync(assets.borderPath, highlight.encodePNG(border));
-  fs.writeFileSync(assets.maskPath, highlight.encodePNG(mask));
+async function writeHighlightAssets(project, directory, source, options) {
+  const settings = project.highlight, card = project.cards[0];
+  const assets = Object.assign(highlight.frameSize(settings, 1), {
+    borderPath: path.join(directory, 'border.png'), maskPath: path.join(directory, 'mask.png')
+  });
+  let maskSettings = settings;
+  const follow = settings.followAlpha !== false && source && (source.decoder || alphaSource.canCarryAlpha(source.pixelFormat));
+  if (follow) {
+    const rect = model.mediaRect(card, source.width, source.height, settings.width, settings.height);
+    const size = highlight.sampleSize(source.width, source.height, rect, 1, 16000000);
+    const decode = { size, path: card.mediaPath, offset: card.mediaType === 'video' ? card.mediaOffset : 0,
+      decoder: source.decoder, ffmpegPath: options.ffmpegPath || 'ffmpeg', fps: project.fps, duration: project.duration };
+    let opaqueBorder;
+    function border(alpha, transparent) {
+      if (transparent) return highlight.raster(settings, 1, { alpha, width: size.width, height: size.height, rect });
+      if (!opaqueBorder) opaqueBorder = highlight.raster(settings, 1);
+      return opaqueBorder;
+    }
+    if (card.mediaType === 'video') {
+      assets.videoBorders = async function* (signal) {
+        let lastPlane, pixels, transparent;
+        const shapeRow = Buffer.alloc(4 * assets.width), subjectRow = Buffer.alloc(shapeRow.length);
+        subjectRow[3] = 255;
+        for await (const plane of alphaSource.readFrames(Object.assign({}, decode, { signal }))) {
+          if (!lastPlane || !lastPlane.equals(plane)) {
+            transparent = plane.some(value => value !== 255);
+            const rgba = border(plane, transparent).pixels;
+            pixels = Buffer.from(rgba.buffer, rgba.byteOffset, rgba.byteLength);
+            lastPlane = plane;
+          }
+          yield pixels; yield transparent ? subjectRow : shapeRow;
+        }
+      };
+    } else {
+      const alpha = await alphaSource.firstFrame(Object.assign({}, decode, { signal: options.signal }));
+      const transparent = alpha.some(value => value !== 255);
+      if (transparent) maskSettings = Object.assign({}, settings, { shape: 'rectangle' });
+      fs.writeFileSync(assets.borderPath, highlight.encodePNG(border(alpha, transparent)));
+    }
+  } else fs.writeFileSync(assets.borderPath, highlight.encodePNG(highlight.raster(settings, 1)));
+  fs.writeFileSync(assets.maskPath, highlight.encodePNG(highlight.mask(maskSettings, 1)));
   return assets;
 }
 
@@ -446,7 +503,7 @@ async function render(project, options) {
     let assets;
     if (project.mode === 'highlight') {
       assetDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'card-reveal-highlight-'));
-      assets = writeHighlightAssets(project, assetDirectory);
+      assets = await writeHighlightAssets(project, assetDirectory, sources[0], options);
     }
     return await new Promise(function (resolve, reject) {
     let args;
@@ -458,12 +515,19 @@ async function render(project, options) {
     } catch (error) { reject(error); return; }
     const ffmpegPath = options.ffmpegPath || 'ffmpeg';
     if (options.signal && options.signal.aborted) { reject(cancelled()); return; }
-    let process;
-    try { process = childProcess.spawn(ffmpegPath, args, { shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }); } catch (error) { reject(launchFailure(error)); return; }
+    let process, feedError, encoderError, encoderClosed = false;
+    const feed = assets && assets.videoBorders ? new AbortController() : null;
+    try { process = childProcess.spawn(ffmpegPath, args, { shell: false, windowsHide: true, stdio: [feed ? 'pipe' : 'ignore', 'pipe', 'pipe'] }); } catch (error) { reject(launchFailure(error)); return; }
     let errors = '';
     let progressBuffer = '';
     let aborted = false;
-    const abort = function () { aborted = true; process.kill(); };
+    const abort = function () { aborted = true; if (feed) feed.abort(); process.kill(); };
+    const supplied = feed ? pipeline(Readable.from(assets.videoBorders(feed.signal), { objectMode: false }), process.stdin).catch(function (error) {
+      if (!encoderClosed && !aborted && error.code !== 'EPIPE' && error.code !== 'ERR_STREAM_PREMATURE_CLOSE') {
+        feedError = error; process.kill();
+      }
+      feed.abort();
+    }) : Promise.resolve();
     if (options.signal) options.signal.addEventListener('abort', abort, { once: true });
     process.stderr.on('data', function (chunk) { errors = (errors + chunk.toString()).slice(-6000); });
     process.stdout.on('data', function (chunk) {
@@ -476,15 +540,18 @@ async function render(project, options) {
       });
     });
     process.on('error', function (error) {
-      if (options.signal) options.signal.removeEventListener('abort', abort);
-      reject(launchFailure(error));
+      encoderError = launchFailure(error);
+      if (feed) feed.abort();
     });
-    process.on('close', function (code) {
+    process.on('close', async function (code) {
+      encoderClosed = true;
+      if (feed) feed.abort();
+      await supplied;
       if (options.signal) options.signal.removeEventListener('abort', abort);
-      if (aborted || code !== 0) {
+      if (aborted || encoderError || feedError || code !== 0) {
         // A failed movie must not be mistaken for a complete render.
         try { fs.unlinkSync(temporaryPath); } catch (_) { /* no partial output */ }
-        reject(aborted ? cancelled() : renderFailure(project, errors, temporaryPath));
+        reject(aborted ? cancelled() : (encoderError || feedError || renderFailure(project, errors, temporaryPath)));
         return;
       }
       try { fs.renameSync(temporaryPath, options.outputPath); } catch (error) {

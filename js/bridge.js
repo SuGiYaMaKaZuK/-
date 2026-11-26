@@ -1,7 +1,7 @@
 (function () {
   'use strict';
   var api = window.CardBridge = { hasHost: false };
-  var connection = { version: '0.15.0', cepAvailable: !!(window.__adobe_cep__ && typeof window.__adobe_cep__.evalScript === 'function'), nodeAvailable: false, ready: false, initializationError: null, lastRequest: null }, requestId = 0;
+  var connection = { version: '0.16.0', cepAvailable: !!(window.__adobe_cep__ && typeof window.__adobe_cep__.evalScript === 'function'), nodeAvailable: false, ready: false, initializationError: null, lastRequest: null }, requestId = 0;
   api.mediaTypeForName = function (name) {
     if (/\.(png|jpe?g|webp|bmp|tiff?)$/i.test(name)) return 'image';
     if (/\.(mp4|mov|m4v|avi|mkv|webm|mts|m2ts|mxf)$/i.test(name)) return 'video';
@@ -139,6 +139,24 @@
     }
     if (!result) return null;
     return localMedia(result);
+  };
+  api.previewAlpha = async function (filePath, size, time, signal) {
+    if (!path.isAbsolute(filePath) || !Number.isInteger(size.width) || !Number.isInteger(size.height) ||
+        size.width <= 0 || size.height <= 0 || size.width * size.height > 2000000 || !Number.isFinite(time) || time < 0) {
+      throw new Error('プレビュー用の素材情報を確認できません。');
+    }
+    var decoder;
+    if (/\.webm$/i.test(filePath)) {
+      var file = await fs.promises.open(filePath, 'r');
+      try {
+        var header = nodeRequire('buffer').Buffer.alloc(65536);
+        await file.read(header, 0, header.length, 0);
+        if (header.includes('V_VP9')) decoder = 'libvpx-vp9';
+        else if (header.includes('V_VP8')) decoder = 'libvpx';
+      } finally { await file.close(); }
+    }
+    var reader = nodeRequire(path.join(root, 'js', 'alpha-source.js'));
+    return reader.firstFrame({ ffmpegPath: ffmpegPath(), path: filePath, decoder: decoder, size: size, offset: time, displayFrame: true, signal: signal });
   };
   api.mediaURL = function (filePath) { return nodeURL.pathToFileURL(filePath).href; };
   function titlePath(value) {

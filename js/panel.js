@@ -34,14 +34,14 @@
   function splitSettings(){return project.trapezoid || {angle:8,borderWidth:4,borderColor:'#ffffff',slideDuration:.8,interval:.25,startAt:0};}
   function activeCards(){return isHighlight()?project.cards.slice(0,1):(isSplit()?project.cards.slice(0,3):project.cards);}
   function cardByID(id){return project.cards.find(function(c){return c.id===id;});}
-  function releaseMedia(id){var item=media[id];if(!item)return;if(item.el.tagName==='VIDEO'){item.el.pause();item.el.removeAttribute('src');item.el.load();}delete media[id];}
+  function releaseMedia(id){var item=media[id];if(!item)return;if(item.alphaController)item.alphaController.abort();if(item.el.tagName==='VIDEO'){item.el.pause();item.el.removeAttribute('src');item.el.load();}delete media[id];}
   function loadMedia(card,info){
     releaseMedia(card.id);if(!info.url && !info.path)return;if(info.objectURL)ownedURLs[info.url]=true;
     var video=(info.type || card.mediaType)==='video',el=document.createElement(video?'video':'img');
     var item={el:el,url:info.url || mediaURL(info.path),path:info.path || '',objectURL:!!info.objectURL,ready:false,autoHighlight:!!info.autoHighlight};media[card.id]=item;
     el.addEventListener(video?'loadeddata':'load',function(){if(media[card.id]!==item)return;item.ready=true;autoFitHighlight(card,item);draw();renderThumbnails();});
     el.addEventListener('error',function(){if(media[card.id]!==item)return;item.failed=true;status('素材が見つからないか、プレビューできない形式です。素材を選び直してください。',true);});
-    if(video){el.muted=true;el.preload='auto';el.playsInline=true;el.addEventListener('seeked',draw);}el.src=item.url;
+    if(video){el.muted=true;el.preload='auto';el.playsInline=true;el.addEventListener('seeked',function(){item.seekVersion=(item.seekVersion || 0)+1;draw();});}el.src=item.url;
   }
   function autoFitHighlight(card,item){
     if(renderBusy || !isHighlight() || card!==project.cards[0] || !item || !item.ready || !item.autoHighlight)return;
@@ -50,7 +50,7 @@
     h.width=Math.max(16,Math.round(sw*factor));h.height=Math.max(16,Math.round(sh*factor));
     card.mediaScale=100;card.mediaX=0;card.mediaY=0;item.autoHighlight=false;edited('media:'+card.id+':'+item.url,30000);
     syncHighlightControls();syncMediaControls();requestHighlightDraw(false);
-    status('素材のサイズを読み取り、画像全体の外周に枠を合わせました。');
+    status('素材のサイズに合わせました。');
   }
   function synchronizeMedia(){Object.keys(media).forEach(function(id){if(!cardByID(id))releaseMedia(id);else if((isHighlight()?project.cards.indexOf(cardByID(id))>0:(isSplit() && project.cards.indexOf(cardByID(id))>2)) && media[id].el.tagName==='VIDEO')media[id].el.pause();});activeCards().forEach(function(c){if(c.mediaPath && (!media[c.id] || media[c.id].path!==c.mediaPath))loadMedia(c,{path:c.mediaPath,type:c.mediaType});});}
   function selectCard(id){if(renderBusy)return;selected=id;renderCards();renderEditor();draw();}
@@ -151,7 +151,7 @@
   }
   function syncHighlightControls(except,positionOnly){
     if(!isHighlight())return;var h=project.highlight;
-    document.querySelectorAll('[data-highlight-setting]').forEach(function(input){var key=input.dataset.highlightSetting;if(key==='x'){input.min=-2*project.width;input.max=2*project.width;}if(key==='y'){input.min=-2*project.height;input.max=2*project.height;}if(input!==except)input.value=h[key];});
+    document.querySelectorAll('[data-highlight-setting]').forEach(function(input){var key=input.dataset.highlightSetting;if(key==='x'){input.min=-2*project.width;input.max=2*project.width;}if(key==='y'){input.min=-2*project.height;input.max=2*project.height;}if(input!==except){if(input.type==='checkbox')input.checked=h[key]!==false;else input.value=h[key];}});
     if(positionOnly)return;
     $('highlight-radius-label').hidden=h.shape!=='rounded';$('edit-polygon').hidden=h.shape!=='polygon';$('edit-polygon').setAttribute('aria-pressed',String(polygonEditing));$('edit-polygon').textContent=polygonEditing?'頂点の編集を終える':'頂点を編集';$('add-point').hidden=h.shape!=='polygon' || !polygonEditing;$('remove-point').hidden=h.shape!=='polygon' || !polygonEditing;$('point-controls').hidden=h.shape!=='polygon';
     $('polygon-hint').textContent=h.shape==='polygon'?(polygonEditing?'白い点をドラッグして形を調整。線が交差する位置には動かせません。':'「頂点を編集」で角を動かせます。画像と枠の移動はプレビューをドラッグ。'):'';
@@ -163,10 +163,11 @@
     draw();
   }
   function frameChanged(e){
-    if(renderBusy || !isHighlight())return;var input=e.target,key=input.dataset.highlightSetting;if(!key)return;var h=project.highlight,value=input.value;
+    if(renderBusy || !isHighlight())return;var input=e.target,key=input.dataset.highlightSetting;if(!key)return;var h=project.highlight,value=input.type==='checkbox'?input.checked:input.value;
     if(input.type==='number'){if(value===''){if(e.type==='change')input.value=h[key];return;}value=Number(value);if(!Number.isFinite(value))return;if(input.hasAttribute('min'))value=Math.max(Number(input.min),value);if(input.hasAttribute('max'))value=Math.min(Number(input.max),value);if(key==='width' || key==='height')value=Math.round(value);}
-    h[key]=value;if(key==='shape')polygonEditing=false;edited();syncHighlightControls(e.type==='input'?input:null,true);
-    if(key==='shape')syncHighlightControls();requestHighlightDraw(e.type==='input' && ['x','y','rotation'].indexOf(key)<0);
+    if(key==='shape' && usingSourceContour())h.followAlpha=false;
+    h[key]=value;if(key==='shape' || key==='followAlpha')polygonEditing=false;edited();syncHighlightControls(e.type==='input'?input:null,true);
+    if(key==='shape' || key==='followAlpha')syncHighlightControls();requestHighlightDraw(e.type==='input' && ['x','y','rotation'].indexOf(key)<0);
   }
   document.querySelectorAll('[data-highlight-setting]').forEach(function(input){input.addEventListener('input',frameChanged);input.addEventListener('change',frameChanged);});
   function layerChanged(e){
@@ -192,19 +193,94 @@
   function changePoint(index,x,y){
     var h=project.highlight,old=h.points[index];h.points[index]={x:x,y:y};if(!Model.highlightPolygonValid(h.points)){h.points[index]=old;status('線が交差しないように頂点を動かしてください。',true);syncPointControls();return false;}edited();syncPointControls();requestHighlightDraw(true);return true;
   }
-  $('edit-polygon').addEventListener('click',function(){if(renderBusy)return;polygonEditing=!polygonEditing;syncHighlightControls();draw();});
+  $('edit-polygon').addEventListener('click',function(){if(renderBusy)return;if(usingSourceContour()){project.highlight.followAlpha=false;edited();}polygonEditing=!polygonEditing;syncHighlightControls();draw();});
   $('selected-point').addEventListener('change',function(){if(renderBusy)return;selectedPoint=Number(this.value);syncPointControls();draw();});
   ['point-x','point-y'].forEach(function(id){$(id).addEventListener('change',function(){if(renderBusy)return;var p=project.highlight.points[selectedPoint],v=Math.max(0,Math.min(100,number(this.value,0)))/100;changePoint(selectedPoint,id==='point-x'?v:p.x,id==='point-y'?v:p.y);});});
   $('add-point').addEventListener('click',function(){if(renderBusy)return;try{selectedPoint=Model.addHighlightPoint(project.highlight,selectedPoint);edited();syncHighlightControls();requestHighlightDraw(false);}catch(e){reportError(e,'頂点は12個まで追加できます。');}});
   $('remove-point').addEventListener('click',function(){if(renderBusy)return;try{Model.removeHighlightPoint(project.highlight,selectedPoint);selectedPoint=Math.min(selectedPoint,project.highlight.points.length-1);edited();syncHighlightControls();requestHighlightDraw(false);}catch(e){reportError(e,'頂点は3個以上必要です。');}});
-  function drawHighlight(){
-    var h=project.highlight,c=project.cards[0],item=media[c.id],scale=Math.min(1,canvas.width/project.width,1000/h.width,1000/h.height),cacheKey=JSON.stringify({width:h.width,height:h.height,shape:h.shape,radius:h.radius,points:h.points,layers:h.layers.map(function(l){return{color:l.color,width:l.width,glow:l.glow,opacity:l.opacity,offset:l.offset,enabled:l.enabled};}),scale:scale});
-    if(!highlightPending && (!highlightCache || highlightCache.key!==cacheKey)){
-      var raster=window.CardHighlight.raster(h,scale),bitmap=document.createElement('canvas');bitmap.width=raster.width;bitmap.height=raster.height;var bctx=bitmap.getContext('2d'),data=bctx.createImageData(raster.width,raster.height);data.data.set(raster.pixels);bctx.putImageData(data,0,0);highlightCache={key:cacheKey,bitmap:bitmap,padding:raster.padding,scale:scale,width:h.width,height:h.height};
+  function getPreviewAlpha(item,card,rect,scale){
+    var el=item.el,video=el.tagName==='VIDEO';
+    var w=el.videoWidth || el.naturalWidth,h=el.videoHeight || el.naturalHeight;
+    var size=window.CardHighlight.sampleSize(w,h,rect,scale,1000000);
+    var time=video?el.currentTime:0;
+    var placementKey=[rect.x,rect.y,rect.width,rect.height,project.highlight.width,project.highlight.height,canvas.width/project.width].join('/');
+    var key=[size.width,size.height,Math.floor(time*project.fps),item.seekVersion || 0].join('/');
+    if(item.alphaBlocked && video)key+=':'+placementKey;
+    if(item.alphaSample && (item.alphaSample.key===key || (video && el.seeking)))return item.alphaSample;
+    function sample(alpha){
+      var previous=item.alphaSample;
+      if(video && alpha && previous && previous.alpha && previous.width===size.width && previous.height===size.height){
+        var i=0;while(i<alpha.length && alpha[i]===previous.alpha[i])i++;
+        if(i===alpha.length)alpha=previous.alpha;
+      }
+      return {key:key,alpha:alpha,width:size.width,height:size.height};
     }
+    if(!item.alphaBlocked){
+      try{
+        var surface=item.alphaCanvas || (item.alphaCanvas=document.createElement('canvas'));
+        if(surface.width!==size.width)surface.width=size.width;
+        if(surface.height!==size.height)surface.height=size.height;
+        var context=surface.getContext('2d',{willReadFrequently:true});
+        context.clearRect(0,0,size.width,size.height);context.drawImage(el,0,0,size.width,size.height);
+        item.alphaSample=sample(window.CardHighlight.alphaPlane(context.getImageData(0,0,size.width,size.height).data));
+        return item.alphaSample;
+      }catch(error){
+        if(error.name!=='SecurityError')throw error;
+        item.alphaCanvas=null;item.alphaBlocked=true;
+      }
+    }
+    // File URLs in some CEP builds can be displayed but do not allow canvas pixel reads.
+    if(!item.alphaController && !item.alphaFailed && Bridge.previewAlpha && item.path){
+      var controller=new AbortController(),captured;item.alphaController=controller;
+      if(video){
+        // Keep the visible video and its asynchronously decoded matte on the same frame.
+        key=[size.width,size.height,Math.floor(time*project.fps),item.seekVersion || 0].join('/')+':'+placementKey;
+        var frame=project.highlight,displayScale=canvas.width/project.width;
+        captured=document.createElement('canvas');captured.width=Math.max(1,Math.round(frame.width*displayScale));captured.height=Math.max(1,Math.round(frame.height*displayScale));
+        var paint=captured.getContext('2d');paint.scale(captured.width/frame.width,captured.height/frame.height);
+        paint.drawImage(el,rect.x,rect.y,rect.width,rect.height);
+      }
+      Bridge.previewAlpha(item.path,size,time,controller.signal).then(function(plane){
+        if(media[card.id]!==item || controller.signal.aborted)return;
+        item.alphaSample=sample(plane.some(function(a){return a!==255;})?plane:null);
+        if(captured){item.alphaSample.frame=captured;item.alphaSample.placement=placementKey;}
+      }).catch(function(){
+        if(media[card.id]===item && !controller.signal.aborted){
+          item.alphaFailed=true;status('プレビューで透明度を読み取れませんでした。書き出し時は元の素材から輪郭を計算します。',true);
+        }
+      }).finally(function(){item.alphaController=null;if(media[card.id]===item && !controller.signal.aborted)draw();});
+    }
+    return item.alphaSample && (!item.alphaSample.frame || item.alphaSample.placement===placementKey)?item.alphaSample:null;
+  }
+  function traceHighlightFrame(h,sourceContour){
+    if(sourceContour){ctx.beginPath();ctx.rect(0,0,h.width,h.height);ctx.closePath();}
+    else window.CardHighlight.trace(ctx,h);
+  }
+  function usingSourceContour(){
+    var item=media[project.cards[0].id];
+    return project.highlight.followAlpha!==false && item && item.alphaSample && item.alphaSample.alpha;
+  }
+  function drawHighlight(){
+    var h=project.highlight,c=project.cards[0],item=media[c.id],scale=Math.min(1,canvas.width/project.width,1000/h.width,1000/h.height);
     if(item && item.el.tagName==='VIDEO')manageVideo(item,{visible:true,front:true,mediaTime:c.mediaOffset+currentTime});
-    ctx.save();ctx.translate(h.x,h.y);ctx.rotate(h.rotation*Math.PI/180);ctx.save();ctx.translate(-h.width/2,-h.height/2);window.CardHighlight.trace(ctx,h);ctx.clip();if(item && item.ready)coverImage(item.el,0,0,h.width,h.height,c);else{ctx.fillStyle=palette[0];ctx.fillRect(0,0,h.width,h.height);}ctx.restore();
-    if(highlightCache && highlightCache.width===h.width && highlightCache.height===h.height){var cache=highlightCache;ctx.drawImage(cache.bitmap,-h.width/2-cache.padding/cache.scale,-h.height/2-cache.padding/cache.scale,cache.bitmap.width/cache.scale,cache.bitmap.height/cache.scale);}
+    var inspect=item && item.ready && h.followAlpha!==false;
+    var rect,sample;
+    if(inspect){
+      rect=Model.mediaRect(c,item.el.videoWidth || item.el.naturalWidth,item.el.videoHeight || item.el.naturalHeight,h.width,h.height);
+      sample=getPreviewAlpha(item,c,rect,scale);
+    }
+    var alpha=sample && sample.alpha;
+    var cacheKey=JSON.stringify([h.width,h.height,h.shape,h.radius,h.points,h.layers,scale,alpha?rect:null]);
+    if((!inspect || sample) && !highlightPending && (!highlightCache || highlightCache.key!==cacheKey || highlightCache.alpha!==alpha)){
+      var source=alpha?{alpha:alpha,width:sample.width,height:sample.height,rect:rect}:null;
+      var raster=window.CardHighlight.raster(h,scale,source),bitmap=document.createElement('canvas');
+      bitmap.width=raster.width;bitmap.height=raster.height;
+      var bctx=bitmap.getContext('2d'),data=bctx.createImageData(raster.width,raster.height);
+      data.data.set(raster.pixels);bctx.putImageData(data,0,0);
+      highlightCache={key:cacheKey,alpha:alpha,bitmap:bitmap,padding:raster.padding,scale:scale,width:h.width,height:h.height};
+    }
+    ctx.save();ctx.translate(h.x,h.y);ctx.rotate(h.rotation*Math.PI/180);ctx.save();ctx.translate(-h.width/2,-h.height/2);traceHighlightFrame(h,alpha);ctx.clip();if(sample && sample.frame)ctx.drawImage(sample.frame,0,0,h.width,h.height);else if(item && item.ready)coverImage(item.el,0,0,h.width,h.height,c);else{ctx.fillStyle=palette[0];ctx.fillRect(0,0,h.width,h.height);}ctx.restore();
+    if((!inspect || sample) && highlightCache && highlightCache.width===h.width && highlightCache.height===h.height){var cache=highlightCache;ctx.drawImage(cache.bitmap,-h.width/2-cache.padding/cache.scale,-h.height/2-cache.padding/cache.scale,cache.bitmap.width/cache.scale,cache.bitmap.height/cache.scale);}
     if(polygonEditing && h.shape==='polygon' && !renderBusy){ctx.save();ctx.translate(-h.width/2,-h.height/2);ctx.lineWidth=1/scale;ctx.strokeStyle='#ddd1f5';window.CardHighlight.trace(ctx,h);ctx.stroke();h.points.forEach(function(p,i){ctx.beginPath();ctx.arc(p.x*h.width,p.y*h.height,(i===selectedPoint?6:4.5)/scale,0,Math.PI*2);ctx.fillStyle=i===selectedPoint?'#c19bff':'#ffffff';ctx.fill();ctx.strokeStyle='#49315f';ctx.stroke();});ctx.restore();}
     ctx.restore();
   }
@@ -250,7 +326,7 @@
         var closest=-1,distance=threshold;h.points.forEach(function(point,i){var d=Math.hypot(local.x-point.x*h.width,local.y-point.y*h.height);if(d<distance){distance=d;closest=i;}});
         if(closest<0){status('枠の白い頂点をドラッグしてください。');return;}selectedPoint=closest;drag={kind:'vertex',index:closest};syncPointControls();
       }else{
-        ctx.save();ctx.setTransform(1,0,0,1,0,0);window.CardHighlight.trace(ctx,h);var hit=ctx.isPointInPath(local.x,local.y);ctx.restore();if(!hit)return;drag={kind:'highlight',x:p.x,y:p.y,hx:h.x,hy:h.y};
+        ctx.save();ctx.setTransform(1,0,0,1,0,0);traceHighlightFrame(h,usingSourceContour());var hit=ctx.isPointInPath(local.x,local.y);ctx.restore();if(!hit)return;drag={kind:'highlight',x:p.x,y:p.y,hx:h.x,hy:h.y};
       }
       setPlaying(false);e.preventDefault();canvas.setPointerCapture(e.pointerId);canvas.classList.add('dragging');syncHistory();draw();return;
     }

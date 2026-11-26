@@ -17,7 +17,7 @@
   }
   function defaultHighlight(project) {
     var w=Number.isFinite(project.width)?project.width:1920,h=Number.isFinite(project.height)?project.height:1080;
-    return {x:w/2,y:h/2,width:Math.max(16,Math.round(w*.44)),height:Math.max(16,Math.round(h*.72)),rotation:0,shape:'rounded',radius:28,
+    return {x:w/2,y:h/2,width:Math.max(16,Math.round(w*.44)),height:Math.max(16,Math.round(h*.72)),rotation:0,shape:'rounded',radius:28,followAlpha:true,
       points:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],layers:[
         highlightLayer('外側の光','#ffe600',12,30,10,.85),
         highlightLayer('黄色の枠','#ffe600',8,4,6,1),
@@ -223,6 +223,7 @@
         range(h,'width',16,3840,'強調する画像の幅',true);range(h,'height',16,2160,'強調する画像の高さ',true);
         range(h,'x',-2*p.width,2*p.width,'強調画像のX位置');range(h,'y',-2*p.height,2*p.height,'強調画像のY位置');
         range(h,'rotation',-180,180,'画像の回転');range(h,'radius',0,500,'角の丸み');
+        if(h.followAlpha!==undefined && typeof h.followAlpha!=='boolean') errors.push('透過素材の輪郭設定を確認してください。');
         if(['rounded','rectangle','polygon'].indexOf(h.shape)<0) errors.push('強調する形を選んでください。');
         if(!highlightPolygonValid(h.points)) errors.push('頂点は3〜12個で、線が交差しない形にしてください。');
         if(!Array.isArray(h.layers) || h.layers.length>12) errors.push('強調レイヤーは0〜12枚にしてください。');

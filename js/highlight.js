@@ -63,15 +63,116 @@
     if (width * height > 32000000) throw new Error('強調枠の描画サイズが大きすぎます。サイズか描画倍率を下げてください。');
     return { width: width, height: height, padding: padding, pixels: new Uint8Array(width * height * 4) };
   }
-  function raster(settings, scale) {
+  function frameSize(settings, scale) {
+    var geom = geometry(settings, scale), stack = layers(settings, scale), reach = 0;
+    stack.forEach(function (layer) { reach = Math.max(reach, layer.offset + layer.width / 2 + 3 * layer.glow); });
+    var padding = Math.ceil(Math.max(0, reach)) + 3;
+    return { width: geom.width + padding * 2, height: geom.height + padding * 2, padding: padding };
+  }
+  // Sample only the alpha plane for the outline. The original color media takes its own path.
+  function sampleSize(width, height, rect, scale, maxPixels) {
+    var factor = Math.min(1, Math.max(rect.width * scale / width, rect.height * scale / height), Math.sqrt(maxPixels / (width * height)));
+    return { width: Math.max(1, Math.round(width * factor)), height: Math.max(1, Math.round(height * factor)) };
+  }
+  function alphaPlane(rgba) {
+    var count = rgba.length / 4, alpha = null;
+    for (var i = 0; i < count; i++) {
+      var value = rgba[i * 4 + 3];
+      if (value !== 255 && !alpha) { alpha = new Uint8Array(count); alpha.fill(255, 0, i); }
+      if (alpha) alpha[i] = value;
+    }
+    return alpha;
+  }
+  function placedSilhouette(geom, source, scale, frame) {
+    var rect = source.rect, sw = source.width, sh = source.height, alpha = source.alpha;
+    if (!alpha || alpha.length !== sw * sh || !rect || !(rect.width > 0 && rect.height > 0)) throw new Error('素材の透明度を読み取れません。');
+    var inside = new Uint8Array(frame.width * frame.height), peak = 0;
+    // The threshold stays low enough for fine hair, and adapts to faint artwork.
+    for (var i = 0; i < alpha.length && peak < 32; i++) peak = Math.max(peak, alpha[i]);
+    if (!peak) return null;
+    var threshold = Math.min(16, peak / 2), leftEdge = geom.width, topEdge = geom.height, rightEdge = -1, bottomEdge = -1;
+    var scaleX = sw / rect.width, scaleY = sh / rect.height;
+    for (var y = 0; y < geom.height; y++) {
+      var localY = (y + 0.5) / scale - rect.y;
+      if (localY < 0 || localY >= rect.height) continue;
+      var sy = clamp(localY * scaleY - 0.5, 0, sh - 1), top = Math.floor(sy), bottom = Math.min(top + 1, sh - 1), fy = sy - top;
+      for (var x = 0; x < geom.width; x++) {
+        var localX = (x + 0.5) / scale - rect.x;
+        if (localX < 0 || localX >= rect.width) continue;
+        var sx = clamp(localX * scaleX - 0.5, 0, sw - 1), left = Math.floor(sx), right = Math.min(left + 1, sw - 1), fx = sx - left;
+        var a = alpha[top * sw + left] * (1 - fx) + alpha[top * sw + right] * fx;
+        var b = alpha[bottom * sw + left] * (1 - fx) + alpha[bottom * sw + right] * fx;
+        if (a * (1 - fy) + b * fy < threshold) continue;
+        inside[(y + frame.padding) * frame.width + x + frame.padding] = 1;
+        leftEdge = Math.min(leftEdge, x); rightEdge = Math.max(rightEdge, x);
+        topEdge = Math.min(topEdge, y); bottomEdge = y;
+      }
+    }
+    if (rightEdge < 0) return null;
+    // Transparent margins beyond the furthest layer need no distance field.
+    var width = rightEdge - leftEdge + 1 + frame.padding * 2, height = bottomEdge - topEdge + 1 + frame.padding * 2;
+    if (width === frame.width && height === frame.height) return { x: 0, y: 0, width: width, height: height, inside: inside };
+    var cropped = new Uint8Array(width * height);
+    for (var row = 0; row < height; row++) {
+      var start = (row + topEdge) * frame.width + leftEdge;
+      cropped.set(inside.subarray(start, start + width), row * width);
+    }
+    return { x: leftEdge, y: topEdge, width: width, height: height, inside: cropped };
+  }
+  // Exact Euclidean distance to opposite-class pixel centers, in two separable passes.
+  // Subtract half a pixel to place a straight edge between the two centers.
+  function silhouetteDistances(inside, width, height) {
+    var field = new Float32Array(inside.length), result = new Float32Array(inside.length);
+    var sites = new Int32Array(width), limits = new Float64Array(width);
+    var far = width + height + 1;
+    for (var target = 0; target <= 1; target++) {
+      for (var x = 0; x < width; x++) {
+        var d = far;
+        for (var i = x; i < field.length; i += width) { d = inside[i] === target ? 0 : Math.min(d + 1, far); field[i] = d; }
+        d = far;
+        for (i = field.length - width + x; i >= 0; i -= width) {
+          d = Math.min(d + 1, field[i]); field[i] = d * d;
+        }
+      }
+      for (var row = 0; row < field.length; row += width) {
+        var last = 0; sites[0] = 0; limits[0] = -Infinity;
+        for (var q = 1; q < width; q++) {
+          var crossing;
+          while (true) {
+            var p = sites[last];
+            crossing = ((field[row + q] - field[row + p]) / (q - p) + q + p) / 2;
+            if (crossing > limits[last]) break;
+            last--;
+          }
+          last++; sites[last] = q; limits[last] = crossing;
+        }
+        var active = 0;
+        for (q = 0; q < width; q++) {
+          while (active < last && limits[active + 1] < q) active++;
+          if (inside[row + q] === target) continue;
+          var nearest = sites[active], dx = q - nearest;
+          var edge = Math.sqrt(dx * dx + field[row + nearest]) - 0.5;
+          result[row + q] = target ? edge : -edge;
+        }
+      }
+    }
+    return result;
+  }
+  function raster(settings, scale, source) {
     scale = scale === undefined ? 1 : scale;
-    var geom = geometry(settings, scale), stack = layers(settings, scale), padding = 0;
-    stack.forEach(function (layer) { padding = Math.max(padding, layer.offset + layer.width / 2 + 3 * layer.glow); });
-    padding = Math.ceil(Math.max(0, padding)) + 3;
-    var result = allocate(geom, padding), count = result.width * result.height;
-    var distances = new Float32Array(count);
-    for (var y = 0; y < result.height; y++) {
-      for (var x = 0; x < result.width; x++) distances[y * result.width + x] = distance(geom, x + 0.5 - padding, y + 0.5 - padding);
+    var geom = geometry(settings, scale), stack = layers(settings, scale), size = frameSize(settings, scale);
+    var padding = size.padding, result = allocate(geom, padding), count = result.width * result.height, distances, region;
+    if (!stack.length) return result;
+    if (source) {
+      region = placedSilhouette(geom, source, scale, result);
+      if (!region) return result;
+      distances = silhouetteDistances(region.inside, region.width, region.height);
+      count = distances.length;
+    } else {
+      distances = new Float32Array(count);
+      for (var y = 0; y < result.height; y++) {
+        for (var x = 0; x < result.width; x++) distances[y * result.width + x] = distance(geom, x + 0.5 - padding, y + 0.5 - padding);
+      }
     }
     // Accumulate premultiplied RGB in scalars to avoid four more full-frame
     // buffers. Only the reusable distance field and the output occupy the frame.
@@ -93,8 +194,9 @@
         blue = layer.blue * coverage + blue * remainder;
         alpha = coverage + alpha * remainder;
       }
-      var offset = pixel * 4, byteAlpha = Math.round(alpha * 255);
+      var byteAlpha = Math.round(alpha * 255);
       if (!byteAlpha) continue;
+      var offset = region ? ((region.y + Math.floor(pixel / region.width)) * result.width + region.x + pixel % region.width) * 4 : pixel * 4;
       result.pixels[offset] = Math.round(clamp(red / alpha, 0, 255));
       result.pixels[offset + 1] = Math.round(clamp(green / alpha, 0, 255));
       result.pixels[offset + 2] = Math.round(clamp(blue / alpha, 0, 255));
@@ -162,5 +264,5 @@
       chunk('IDAT', zlib.deflateSync(filtered)), chunk('IEND', BufferClass.alloc(0))
     ]);
   }
-  return { raster: raster, mask: mask, trace: trace, encodePNG: encodePNG };
+  return { frameSize: frameSize, sampleSize: sampleSize, alphaPlane: alphaPlane, raster: raster, mask: mask, trace: trace, encodePNG: encodePNG };
 }));

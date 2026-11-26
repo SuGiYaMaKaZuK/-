@@ -35,3 +35,5 @@
 .section-top,.layout-toolbar,.highlight-toolbar,#polygon-hint,.transport{flex:none}
 .preview-stage{height:auto;min-height:0;flex:1}
 @media(max-width:880px){.stage-panel{overflow:visible}.preview-panel{flex:none;min-height:0}.preview-stage{flex:none;height:280px;min-height:0}}
+
+.alpha-outline-option{display:flex;align-items:center;gap:6px;margin:0 0 6px;cursor:pointer}.alpha-outline-option input[type=checkbox]{flex:none;width:auto;margin:0}
