@@ -91,7 +91,7 @@
     for (var i = 0; i < alpha.length && peak < 32; i++) peak = Math.max(peak, alpha[i]);
     if (!peak) return null;
     var threshold = Math.min(16, peak / 2), leftEdge = geom.width, topEdge = geom.height, rightEdge = -1, bottomEdge = -1;
-    var scaleX = sw / rect.width, scaleY = sh / rect.height;
+    var scaleX = sw / rect.width, scaleY = sh / rect.height, minAlpha = 255, maxAlpha = 0;
     for (var y = 0; y < geom.height; y++) {
       var localY = (y + 0.5) / scale - rect.y;
       if (localY < 0 || localY >= rect.height) continue;
@@ -105,6 +105,7 @@
         var value = Math.round(a * (1 - fy) + b * fy);
         coverage[(y + frame.padding) * frame.width + x + frame.padding] = value;
         if (value < threshold) continue;
+        minAlpha = Math.min(minAlpha, value); maxAlpha = Math.max(maxAlpha, value);
         leftEdge = Math.min(leftEdge, x); rightEdge = Math.max(rightEdge, x);
         topEdge = Math.min(topEdge, y); bottomEdge = y;
       }
@@ -112,21 +113,71 @@
     if (rightEdge < 0) return null;
     // Transparent margins beyond the furthest layer need no distance field.
     var width = rightEdge - leftEdge + 1 + frame.padding * 2, height = bottomEdge - topEdge + 1 + frame.padding * 2;
-    if (width === frame.width && height === frame.height) return { x: 0, y: 0, width: width, height: height, coverage: coverage, threshold: threshold };
+    var region = { x: leftEdge, y: topEdge, width: width, height: height, coverage: coverage, threshold: threshold,
+      uniformOpacity: minAlpha === maxAlpha ? maxAlpha / 255 : null };
+    if (width === frame.width && height === frame.height) return region;
     var cropped = new Uint8Array(width * height);
     for (var row = 0; row < height; row++) {
       var start = (row + topEdge) * frame.width + leftEdge;
       cropped.set(coverage.subarray(start, start + width), row * width);
     }
-    return { x: leftEdge, y: topEdge, width: width, height: height, coverage: cropped, threshold: threshold };
+    region.coverage = cropped;
+    return region;
+  }
+  // Average the material opacity near each output pixel. Carrying the alpha of
+  // one nearest edge pixel into the halo produces radial streaks around curves.
+  function localOpacity(region) {
+    var width = region.width, height = region.height, alpha = region.coverage;
+    // Binning bounds the two summed-area tables to about 4 MiB. Contour
+    // distances and the original color image still use their full resolution.
+    var step = Math.max(1, Math.ceil(Math.sqrt(alpha.length / 262144)));
+    var cols = Math.ceil(width / step), rows = Math.ceil(height / step), stride = cols + 1;
+    var weights = new Float64Array(stride * (rows + 1)), weightedAlpha = new Float64Array(weights.length);
+    for (var y = 0; y < height; y++) {
+      var dest = (Math.floor(y / step) + 1) * stride + 1;
+      for (var x = 0; x < width; x++) {
+        var a = alpha[y * width + x];
+        if (a < region.threshold) continue;
+        var bin = dest + Math.floor(x / step);
+        var weight = a * a;
+        weights[bin] += weight; weightedAlpha[bin] += a * weight;
+      }
+    }
+    for (y = 1; y <= rows; y++) {
+      var totalWeight = 0, totalAlpha = 0;
+      for (x = 1; x <= cols; x++) {
+        var i = y * stride + x;
+        totalWeight += weights[i]; totalAlpha += weightedAlpha[i];
+        weights[i] = weights[i - stride] + totalWeight; weightedAlpha[i] = weightedAlpha[i - stride] + totalAlpha;
+      }
+    }
+    // A fractional box follows the contour smoothly as its radius changes.
+    function prefix(table, x, y) {
+      var ix = Math.min(Math.floor(x), cols - 1), iy = Math.min(Math.floor(y), rows - 1);
+      var fx = x - ix, fy = y - iy, i = iy * stride + ix;
+      var top = table[i] * (1 - fx) + table[i + 1] * fx;
+      var bottom = table[i + stride] * (1 - fx) + table[i + stride + 1] * fx;
+      return top * (1 - fy) + bottom * fy;
+    }
+    function box(table, left, top, right, bottom) {
+      return prefix(table, right, bottom) - prefix(table, left, bottom) - prefix(table, right, top) + prefix(table, left, top);
+    }
+    return function (x, y, distance) {
+      var radius = distance + 2.5;
+      var left = Math.max(0, (x + 0.5 - radius) / step), right = Math.min(cols, (x + 0.5 + radius) / step);
+      var top = Math.max(0, (y + 0.5 - radius) / step), bottom = Math.min(rows, (y + 0.5 + radius) / step);
+      var weight = box(weights, left, top, right, bottom);
+      return weight > 0 ? clamp(box(weightedAlpha, left, top, right, bottom) / (255 * weight), 0, 1) : 0;
+    };
   }
   // Distance to the nearest contour. Keep the nearest row as well as the distance
   // so a partially covered edge pixel can place the outer line between pixels.
-  function silhouetteDistances(region, includeInterior) {
+  function silhouetteDistances(region, includeInterior, reach) {
     var coverage = region.coverage, threshold = region.threshold, width = region.width, height = region.height;
     var field = new Float32Array(coverage.length), result = new Float32Array(coverage.length);
     var sites = new Int32Array(width), limits = new Float64Array(width);
-    var verticalSquared = new Float32Array(width), edgeInset = new Float32Array(width), edgeOpacity = new Float32Array(width);
+    var verticalSquared = new Float32Array(width), edgeInset = new Float32Array(width);
+    var opacityAt = region.uniformOpacity === null ? localOpacity(region) : null;
     var far = width + height + 1;
     // An exterior outline only needs distances to foreground pixels.
     for (var target = includeInterior ? 0 : 1; target <= 1; target++) {
@@ -154,7 +205,6 @@
               coverage[seed-width-1], coverage[seed-width], coverage[seed-width+1],
               coverage[seed+width-1], coverage[seed+width], coverage[seed+width+1]);
             edgeInset[col] = 1 - value / peak;
-            edgeOpacity[col] = peak / 255;
           }
         }
         var last = 0; sites[0] = 0; limits[0] = -Infinity;
@@ -172,10 +222,15 @@
         for (q = 0; q < width; q++) {
           while (active < last && limits[active + 1] < q) active++;
           var nearest = sites[active], dx = q - nearest;
-          // The final pass can reuse this row of scratch storage for the exterior matte.
-          if (foreground) field[row + q] = Math.max(0, 1 - coverage[row + q] / threshold) * edgeOpacity[nearest];
+          // The final pass reuses this row of scratch storage for the exterior matte.
+          if (foreground) field[row + q] = 0;
           if ((coverage[row + q] >= threshold) === foreground) continue;
-          var edge = Math.sqrt(dx * dx + verticalSquared[nearest]) - 0.5 + edgeInset[nearest];
+          var edge = Math.sqrt(dx * dx + verticalSquared[nearest]) - 0.5;
+          if (foreground && edge <= reach) {
+            var opacity = opacityAt ? opacityAt(q, row / width, edge) : region.uniformOpacity;
+            field[row + q] = (1 - coverage[row + q] / threshold) * opacity;
+            edge += edgeInset[nearest] / (1 + edge);
+          }
           result[row + q] = target ? edge : -edge;
         }
       }
@@ -191,7 +246,7 @@
       region = placedSilhouette(geom, source, scale, result);
       if (!region) return result;
       includeInterior = stack.some(function (layer) { return layer.offset < 0 && layer.opacity > 0 && (layer.width > 0 || layer.glow > 0); });
-      var outlined = silhouetteDistances(region, includeInterior);
+      var outlined = silhouetteDistances(region, includeInterior, padding);
       distances = outlined.distances; exteriorMatte = outlined.exterior;
       count = distances.length;
     } else {
@@ -208,6 +263,7 @@
       var exterior = exteriorMatte ? exteriorMatte[pixel] : 1;
       if (!exterior && !includeInterior) continue;
       var red = 0, green = 0, blue = 0, alpha = 0;
+      var innerRed = 0, innerGreen = 0, innerBlue = 0, innerAlpha = 0;
       for (var layerIndex = 0; layerIndex < stack.length; layerIndex++) {
         var layer = stack[layerIndex];
         if (!layer.opacity || (!layer.width && !layer.glow)) continue;
@@ -216,15 +272,29 @@
         var fromBand = Math.max(0, fromCenter - halfWidth);
         var stroke = layer.width > 0 ? clamp(halfWidth + 0.5 - fromCenter, 0, Math.min(1, layer.width)) : 0;
         var glow = layer.glow > 0 && fromBand <= 3 * layer.glow ? 0.65 * Math.exp(-fromBand * fromBand / (2 * layer.glow * layer.glow)) : 0;
-        var coverage = Math.max(stroke, glow) * layer.opacity * (layer.offset < 0 ? 1 : exterior);
+        var coverage = Math.max(stroke, glow) * layer.opacity;
         if (!coverage) continue;
         var remainder = 1 - coverage;
         red = layer.red * coverage + red * remainder;
         green = layer.green * coverage + green * remainder;
         blue = layer.blue * coverage + blue * remainder;
         alpha = coverage + alpha * remainder;
+        if (includeInterior && layer.offset < 0 && exterior < 1) {
+          innerRed = layer.red * coverage + innerRed * remainder;
+          innerGreen = layer.green * coverage + innerGreen * remainder;
+          innerBlue = layer.blue * coverage + innerBlue * remainder;
+          innerAlpha = coverage + innerAlpha * remainder;
+        }
       }
-      var byteAlpha = Math.round(alpha * 255);
+      // The whole exterior stack shares one material matte, even where its
+      // individual light layers overlap. Explicit inset layers keep their order.
+      if (includeInterior && exterior < 1) {
+        red = red * exterior + innerRed * (1 - exterior);
+        green = green * exterior + innerGreen * (1 - exterior);
+        blue = blue * exterior + innerBlue * (1 - exterior);
+        alpha = alpha * exterior + innerAlpha * (1 - exterior);
+      }
+      var byteAlpha = Math.round(alpha * (includeInterior ? 1 : exterior) * 255);
       if (!byteAlpha) continue;
       var offset = region ? ((region.y + Math.floor(pixel / region.width)) * result.width + region.x + pixel % region.width) * 4 : pixel * 4;
       result.pixels[offset] = Math.round(clamp(red / alpha, 0, 255));

@@ -19,9 +19,9 @@
     var w=Number.isFinite(project.width)?project.width:1920,h=Number.isFinite(project.height)?project.height:1080;
     return {x:w/2,y:h/2,width:Math.max(16,Math.round(w*.44)),height:Math.max(16,Math.round(h*.72)),rotation:0,shape:'rounded',radius:28,followAlpha:true,
       points:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],layers:[
-        highlightLayer('薄い影','#302e38',2,2,2,.32),
-        highlightLayer('縁のぼかし','#ded8cf',0,1,1,.23),
-        highlightLayer('細い縁','#fff9ee',2,0,1,.77)
+        highlightLayer('外側の光','#ffd642',0,6,2,.87),
+        highlightLayer('金色の縁','#ffda3f',3,2,2,.95),
+        highlightLayer('細い光の線','#fff3a6',2,0,1,.95)
       ]};
   }
   function upgrade(project) {

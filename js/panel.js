@@ -188,8 +188,8 @@
   $('reset-layers').addEventListener('click',function(){
     if(renderBusy)return;
     project.highlight.layers=Model.defaultHighlight(project).layers;
-    project.highlight.followAlpha=true;selectedLayer=null;polygonEditing=false;
-    edited();syncHighlightControls();requestHighlightDraw(false);status('細い縁と薄い影を適用しました。');
+    project.highlight.followAlpha=true;selectedLayer=project.highlight.layers[0].id;polygonEditing=false;
+    edited();syncHighlightControls();requestHighlightDraw(false);status('光る縁取りを適用しました。「外側の光」の不透明度で光の強さを調整できます。');
   });
   $('fit-highlight').addEventListener('click',function(){
     if(renderBusy)return;var c=project.cards[0],item=media[c.id],sw=item && (item.el.videoWidth || item.el.naturalWidth),sh=item && (item.el.videoHeight || item.el.naturalHeight);if(!sw || !sh){status('先に画像・動画を選び、読み込みが終わってからお試しください。',true);return;}

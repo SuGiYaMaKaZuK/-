@@ -12,7 +12,7 @@ const renderer = require('../js/render');
 
 function pixel(data, width, x, y) { return Array.from(data.subarray((y * width + x) * 4, (y * width + x) * 4 + 4)); }
 function band(p, minAlpha = 165) { return p[0] > 175 && p[1] > 175 && p[2] < 100 && p[3] > minAlpha; }
-test('natural outline keeps artwork clear and feathers into a short neutral shadow', () => {
+test('a crisp gold rim and short outer glow preserve opaque and translucent artwork', () => {
   const settings = project().highlight, image = sprite();
   const alpha = highlight.alphaPlane(image.pixels);
   const source = { ...image, alpha, rect: {x:0,y:0,width:96,height:64} };
@@ -23,12 +23,13 @@ test('natural outline keeps artwork clear and feathers into a short neutral shad
   }
   let at = draw();
   for (let y=0;y<64;y++) for (let x=0;x<96;x++) if (alpha[y*96+x]) assert.equal(at(x,y)[3],0);
-  const rim = at(16,36), shadow = at(13,36);
-  assert.ok(rim[3]>175 && Math.max(...rim.slice(0,3))-Math.min(...rim.slice(0,3))<25);
-  assert.ok(shadow[0]<95 && shadow[3]>10 && shadow[3]<80);
+  const rim = at(16,36), halo = at(10,36), tail = at(5,36);
+  assert.ok(rim[3]>235 && rim[0]>245 && rim[1]>220 && rim[2]>115 && rim[2]<185);
+  assert.ok(band(halo,100) && halo[3]<175);
+  assert.ok(tail[3]>20 && tail[3]<60 && tail[3]<halo[3]);
   const wisp=at(20,9);
   assert.ok(wisp[3]>60 && wisp[3]<100, 'a 38% opaque strand has a proportionately soft rim');
-  assert.equal(at(7,36)[3],0);
+  assert.equal(at(-5,36)[3],0);
   const fullEdge = at(15,36)[3];
   for (let y=13;y<53;y++) alpha[y*96+17]=96;
   at=draw();
@@ -37,6 +38,25 @@ test('natural outline keeps artwork clear and feathers into a short neutral shad
   // A deliberately inset layer still crosses the inside edge. The wide outer glow cannot tint it.
   settings.layers=[model.highlightLayer('外側','#ffff00',8,30,1,1),model.highlightLayer('内側','#ff0000',2,0,-2,1)];
   at=draw();assert.deepEqual(at(18,36),[255,0,0,255]);assert.equal(at(28,20)[3],0);
+});
+test('antialiased contour samples yield an even halo and overlapping lights share one material opacity', () => {
+  const settings=project().highlight;
+  settings.layers=model.defaultHighlight({}).layers;
+  const width=96,height=64,alpha=new Uint8Array(width*height);
+  for(let y=24;y<54;y++) for(let x=4;x<92;x++) {
+    alpha[y*width+x]=y===24?24:(y===25?(x%10<5?68:236):255);
+  }
+  function draw() {
+    const r=highlight.raster(settings,1,{alpha,width,height,rect:{x:0,y:0,width,height}});
+    return (x,y)=>pixel(r.pixels,r.width,r.padding+x,r.padding+y)[3];
+  }
+  let at=draw();
+  const alongEdge=Array.from({length:30},(_,i)=>at(30+i,18));
+  assert.ok(Math.min(...alongEdge)>110 && Math.max(...alongEdge)-Math.min(...alongEdge)<15);
+  for(let i=0;i<alpha.length;i++) if(alpha[i]) alpha[i]=80;
+  at=draw();
+  assert.ok(at(48,23)>=75 && at(48,23)<=80);
+  assert.equal(at(48,24),0);
 });
 test('subject edges, holes, faint disconnected features and empty alpha use the same layered distance field', () => {
   const settings = project().highlight, image = sprite(), alpha = highlight.alphaPlane(image.pixels);
@@ -91,20 +111,21 @@ test('export follows actual PNG and moving video alpha; fixed frames, opaque med
     at=await frames('trimmed');assert.ok(band(at(0,16,35)));assert.ok(band(at(1,34,35)));
     const customLayers = p.highlight.layers;
     p.highlight.layers = model.defaultHighlight(p).layers;
-    const natural = await frames('natural-video');
+    const glowing = await frames('glowing-video');
     p.highlight.layers = [];
     const clean = await frames('source-video');
     for (const [t,shift] of [[0,0],[1,18],[5,18]]) {
       for (const [x,y] of [[17,35],[48,35],[21,9],[61,13]]) {
-        const a=natural(t,x+shift,y), b=clean(t,x+shift,y);
+        const a=glowing(t,x+shift,y), b=clean(t,x+shift,y);
         assert.ok(a.slice(0,3).every((v,i)=>Math.abs(v-b[i])<=9), [t,x,y,a,b]);
         assert.ok(Math.abs(a[3]-b[3])<=1, [t,x,y,a,b]);
       }
-      const rim=natural(t,16+shift,35);
-      assert.ok(rim[3]>175 && rim[2]>170);
-      const wispRim=natural(t,20+shift,9);
+      const rim=glowing(t,16+shift,35),halo=glowing(t,10+shift,35);
+      assert.ok(rim[3]>230 && rim[2]>115 && rim[2]<190);
+      assert.ok(band(halo,100) && halo[3]<175);
+      const wispRim=glowing(t,20+shift,9);
       assert.ok(wispRim[3]>60 && wispRim[3]<100);
-      assert.equal(natural(t,7+shift,35)[3],0);
+      assert.equal(glowing(t,-5+shift,35)[3],0);
     }
     p.highlight.layers = customLayers;
     const webm=path.join(work,'motion.webm');
