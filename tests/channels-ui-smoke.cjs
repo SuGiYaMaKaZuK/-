@@ -32,7 +32,7 @@ let browser;
  }
  let original = await page.evaluate(() => CardLibraryPanel.getState());
  await page.screenshot({ path: path.join(root, 'examples/panel-channels-plugins.png') });
- await page.locator('#toggle-template-panel').click(); assert.equal(await page.locator('#workspace-title').textContent(), '元素材'); assert.equal(await page.locator('[data-template-mode]').count(), 4); await page.screenshot({ path: path.join(root, 'examples/panel-channels-originals.png') });
+ await page.locator('#toggle-template-panel').click(); assert.equal(await page.locator('#workspace-title').textContent(), '元素材'); assert.equal(await page.locator('[data-template-mode]').count(), 5); await page.screenshot({ path: path.join(root, 'examples/panel-channels-originals.png') });
  await page.locator('#template-cards').click(); assert.equal(await page.locator('#editor-dialog').isVisible(), true); await page.locator('#close-editor').click(); assert.equal(await page.locator('#workspace-title').textContent(), '作成済みの素材');
  async function data() { return page.evaluate(() => CardLibraryPanel.getState()); }
  async function groupId(kind, name) { return (await data()).mediaGroups[kind].groups.find(group => group.name === name).id; }

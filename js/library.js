@@ -70,7 +70,7 @@
     if(state.presets.some(function(other){return other.id!==presetId && other.groupId===groupId && other.name===label;}))throw new Error('移動先に同じ名前の演出があります。名前を変更してください。');p.name=label;p.groupId=groupId;state.activeGroupId=groupId;return p;
   }
   function removePreset(state,presetId){if(!state.presets.some(function(p){return p.id===presetId;}))throw new Error('保存した演出が見つかりません。');state.presets=state.presets.filter(function(p){return p.id!==presetId;});}
-  function baseProject(mode){return Model.setMode(Model.createProject(),mode);}
+  function baseProject(mode){return Model.createProject(mode);}
   function validatePlacement(p){
     if(!p || typeof p.mediaPath!=='string' || !p.mediaPath.trim() || p.mediaPath.length>32768 || /^blob:/i.test(p.mediaPath))throw new Error('保存できる素材の場所を確認できません。Premiere内で素材を選び直してください。');
     if(p.mediaType!=='image' && p.mediaType!=='video')throw new Error('画像または動画を選んでください。');
@@ -83,7 +83,10 @@
     var frame={width:project.cardWidth,height:project.cardHeight};
     if(project.mode==='highlight')frame=project.highlight;
     if(project.mode==='trapezoid')frame={width:project.width/3,height:project.height};
-    if(project.mode==='quad' && project.cards.indexOf(c)<4)frame=Model.splitBounds(Model.splitPolygons(project)[project.cards.indexOf(c)]);
+    if(project.mode==='half' || project.mode==='quad'){
+      var index=project.cards.indexOf(c);
+      if(index<Model.splitCount(project))frame=Model.splitBounds(Model.splitPolygons(project)[index]);
+    }
     return validatePlacement({mediaPath:c.mediaPath,mediaType:c.mediaType,sourceName:c.name,mediaScale:c.mediaScale,mediaX:c.mediaX,mediaY:c.mediaY,referenceWidth:project.width,referenceHeight:project.height,frameWidth:frame.width,frameHeight:frame.height});
   }
   function savePlacement(state,options){

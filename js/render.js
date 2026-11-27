@@ -85,8 +85,8 @@ function validate(project, outputPath) {
     if (project.cards.length < splitCount) throw new Error(splitCount+'分割には素材を'+splitCount+'つ用意してください。');
     const split = model.splitSettings(project);
     if (!split || typeof split !== 'object') throw new Error(splitCount+'分割の設定がありません。');
-    if (project.mode === 'quad' && !['columns','grid'].includes(split.layout)) throw new Error('4分割の配置を選び直してください。');
-    number(split.angle, '傾きの角度', -20, 20);
+    if (!model.validSplitLayout(project)) throw new Error(splitCount+'分割の配置を選び直してください。');
+    if (project.mode !== 'half') number(split.angle, '傾きの角度', -20, 20);
     number(split.borderWidth, '境界線の太さ', 0, 64);
     color(split.borderColor, '境界線の色');
     number(split.slideDuration, 'スライド時間', 0.05, 10);

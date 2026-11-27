@@ -2,7 +2,7 @@
   'use strict';
   var Lib=window.CardLibrary,Panel=window.CardPanel,$=function(id){return document.getElementById(id);};
   var state,available=true,editingId=null,editingName='',opening=false,saveAs=false,managingId=null,editorBaseline=null,saveTargetId=null,updatePending=false,timelineBusy=false;
-  var modes={cards:{name:'カードをめくる',accent:'#ed6ba8'},trapezoid:{name:'台形3分割スライド',accent:'#38c5e0'},quad:{name:'4分割スライド',accent:'#77ceb0'},highlight:{name:'画像を強調',accent:'#e4de4f'}};
+  var modes={cards:{name:'カードをめくる',accent:'#ed6ba8'},half:{name:'2分割スライド',accent:'#80b4ed'},trapezoid:{name:'台形3分割スライド',accent:'#38c5e0'},quad:{name:'4分割スライド',accent:'#77ceb0'},highlight:{name:'画像を強調',accent:'#e4de4f'}};
   function text(value){return String(value).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
   function status(message,error){$('status-text').textContent=message;$('status').classList.toggle('error',!!error);$('editor-status').textContent=message;$('editor-status').classList.toggle('error',!!error);}
   function mode(project){return modes[project.mode]?project.mode:'cards';}

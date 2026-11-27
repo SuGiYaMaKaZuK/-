@@ -47,7 +47,7 @@ let browser;
   await ui('#empty-open-templates').click(); assert.equal(await ui('#template-panel-slot').isVisible(),true);
   for (const size of [{width:320,height:360},{width:384,height:420},{width:420,height:540},{width:760,height:420}]) {
     await page.setViewportSize(size);
-    for(const id of ['#template-cards','#template-trapezoid','#template-quad','#template-highlight']) await onscreen(id);
+    for(const id of ['#template-cards','#template-half','#template-trapezoid','#template-quad','#template-highlight']) await onscreen(id);
     await fits('.studio-workspace'); await fits('#template-panel');
   }
   await page.setViewportSize({width:420,height:540});

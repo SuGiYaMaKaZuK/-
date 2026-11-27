@@ -85,6 +85,9 @@ test('sample projects use bundled native media paths and start from fresh editab
   const four = await env.api.sampleProject('quad');
   assert.equal(four.mode, 'quad');
   assert.equal(four.cards[3].mediaPath, path.join(env.root, 'examples', 'media', 'portal.png'));
+  const halves = await env.api.sampleProject('half');
+  assert.equal(halves.mode, 'half');
+  assert.deepEqual(Array.from(halves.cards, card => card.mediaPath), Array.from(project.cards.slice(0, 2), card => card.mediaPath));
   assert.equal(env.scripts.length, 0);
 });
 

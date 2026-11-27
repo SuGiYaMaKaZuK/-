@@ -447,4 +447,8 @@
   .discord-ui .library-search { font-size:12px }
 }
 
+@media (max-width:540px) and (max-height:460px) {
+  .discord-ui .base-template .mode-thumbnail { height:clamp(38px,12vh,54px); aspect-ratio:auto }
+}
+
 .discord-ui .editor-status:empty { padding:0; border:0; min-height:0 }

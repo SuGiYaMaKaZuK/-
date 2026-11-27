@@ -1,8 +1,8 @@
 {
   "name": "card-reveal-premiere",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "private": true,
-  "description": "Premiere Pro 2026 Windows CEP panel for card reveals, three- and four-panel drop animations, and layered outlines",
+  "description": "Premiere Pro 2026 Windows CEP panel for card reveals, two-, three- and four-panel drop animations, and layered outlines",
   "scripts": {
     "test": "node --test tests/*.test.js"
   },

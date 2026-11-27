@@ -9,8 +9,11 @@
   function card(index) {
     return { id: 'card-' + Date.now().toString(36) + '-' + (++serial), name: 'カード ' + (index + 1), mediaPath: '', mediaType: '', x: 480 + index * 480, y: 570, dropAt: index * 0.18, flipAt: 1.8 + index * 0.8, mediaOffset: 0, mediaScale:100, mediaX:0, mediaY:0 };
   }
-  function createProject() {
-    return upgrade({ version: 4, width: 1920, height: 1080, fps: 30, duration: 7, cardWidth: 320, cardHeight: 448, dropDuration: 0.8, flipDuration: 0.6, backColor: '#251b4d', borderColor: '#b9a0ff', cards: [card(0), card(1), card(2)] });
+  function createProject(mode) {
+    var cards = [card(0), card(1)];
+    if (mode !== 'half') cards.push(card(2));
+    var project = upgrade({ version: 4, width: 1920, height: 1080, fps: 30, duration: 7, cardWidth: 320, cardHeight: 448, dropDuration: 0.8, flipDuration: 0.6, backColor: '#251b4d', borderColor: '#b9a0ff', cards: cards });
+    return mode ? setMode(project, mode) : project;
   }
   function highlightLayer(name,color,width,glow,offset,opacity) {
     return {id:'outline-'+Date.now().toString(36)+'-'+(++serial),name:name,color:color,width:width,glow:glow,offset:offset,opacity:opacity,enabled:true};
@@ -31,6 +34,9 @@
     if (project.backgroundColor === undefined) project.backgroundColor = '#10131c';
     if (project.trapezoid === undefined) project.trapezoid = { angle: 8, borderWidth: 4, borderColor: '#ffffff', slideDuration: 0.8, interval: 0.25, startAt: 0 };
     if (project.mode === 'quad' && project.quad === undefined) project.quad = { layout:'columns', angle:0, borderWidth:4, borderColor:'#ffffff', slideDuration:0.8, interval:0.25, startAt:0 };
+    if (project.mode === 'half' && project.half === undefined) {
+      project.half = { layout:'columns', borderWidth:4, borderColor:'#ffffff', slideDuration:0.8, interval:0.25, startAt:0 };
+    }
     if (project.highlight === undefined) project.highlight=defaultHighlight(project);
     if (Array.isArray(project.cards)) project.cards.forEach(function(c) {
       if (!c || typeof c !== 'object') return;
@@ -150,10 +156,21 @@
     return project;
   }
   function splitCount(project) {
-    return project.mode === 'quad' ? 4 : (project.mode === 'trapezoid' ? 3 : 0);
+    switch (project.mode) {
+      case 'half': return 2;
+      case 'trapezoid': return 3;
+      case 'quad': return 4;
+      default: return 0;
+    }
   }
   function splitSettings(project) {
+    if (project.mode === 'half') return project.half;
     return project.mode === 'quad' ? project.quad : project.trapezoid;
+  }
+  function validSplitLayout(project) {
+    if (project.mode === 'half') return ['columns','rows'].includes(project.half.layout);
+    if (project.mode === 'quad') return ['columns','grid'].includes(project.quad.layout);
+    return true;
   }
   function activeCards(project) {
     var cards = project.cards || [], count = project.mode === 'highlight' ? 1 : splitCount(project);
@@ -164,7 +181,7 @@
     return settings.startAt + (splitCount(project)-1) * settings.interval + settings.slideDuration;
   }
   function setMode(project, mode) {
-    if (['cards','trapezoid','quad','highlight'].indexOf(mode)<0) throw new Error('演出の種類が正しくありません。');
+    if (['cards','half','trapezoid','quad','highlight'].indexOf(mode)<0) throw new Error('演出の種類が正しくありません。');
     project.mode = mode;
     upgrade(project);
     var count=splitCount(project);
@@ -174,18 +191,20 @@
   }
   function splitPolygons(project) {
     var w = project.width, h = project.height;
-    if (project.mode === 'quad') {
-      var quad = project.quad, grid = quad.layout === 'grid', cols = grid ? 2 : 4;
-      var tilt = grid ? 0 : clamp(Math.tan(quad.angle * Math.PI / 180) * h, -w * .10, w * .10);
+    if (project.mode === 'half' || project.mode === 'quad') {
+      var count = splitCount(project), settings = splitSettings(project);
+      var rows = settings.layout === 'columns' ? 1 : 2, cols = count / rows;
+      var tilt = project.mode === 'quad' && rows === 1 ? clamp(Math.tan(settings.angle * Math.PI / 180) * h, -w * .10, w * .10) : 0;
       var boundaries = [];
       for (var col=0; col<=cols; col++) {
         var topX = Math.round(w*col/cols);
         var bottomX = col===0 || col===cols ? topX : topX + (col%2 ? -tilt : tilt);
         boundaries.push({top:topX,bottom:bottomX});
       }
-      return [0,1,2,3].map(function(index) {
+      return Array.from({length:count}, function(_, index) {
         var left=boundaries[index%cols],right=boundaries[index%cols+1];
-        var top = grid && index>=2 ? h/2 : 0, bottom = grid && index<2 ? h/2 : h;
+        var row = Math.floor(index / cols);
+        var top = Math.round(h * row / rows), bottom = Math.round(h * (row + 1) / rows);
         return [{x:left.top,y:top},{x:right.top,y:top},{x:right.bottom,y:bottom},{x:left.bottom,y:bottom}];
       });
     }
@@ -202,12 +221,13 @@
     var left=Math.floor(Math.min(points[0].x,points[3].x)),right=Math.ceil(Math.max(points[1].x,points[2].x));
     return {x:left,y:points[0].y,width:right-left,height:points[3].y-points[0].y};
   }
-  function splitPose(project, index, t) {
+  function splitPose(project, index, t, polygon) {
     var options = splitSettings(project) || { slideDuration:0.8, interval:0.25, startAt:0 };
     var dropAt = options.startAt + index * options.interval;
     var p = clamp((t - dropAt) / options.slideDuration, 0, 1);
     var item = project.cards[index];
-    var travel = project.mode==='quad' && options.layout==='grid' && index<2 ? project.height/2 : project.height;
+    var panel = polygon || splitPolygons(project)[index];
+    var travel = panel ? panel[2].y : project.height;
     return { offsetY: p >= 1 ? 0 : -travel * Math.pow(1 - p, 3), visible: t >= dropAt, front:true, mediaTime: (item ? item.mediaOffset : 0) + Math.max(0, t - dropAt), dropAt:dropAt };
   }
   function reorder(project, from, to) {
@@ -241,15 +261,16 @@
     range(p,'dropDuration',0.05,10,'降下時間'); range(p,'flipDuration',0.05,10,'めくり時間');
     ['backColor','borderColor'].forEach(function (key) { if (!/^#[0-9a-f]{6}$/i.test(p[key] || '')) errors.push('カードの色は6桁のカラーコードで指定してください。'); });
     var count=splitCount(p), cardTiming=!count && p.mode!=='highlight';
-    if (p.mode !== undefined && ['cards','trapezoid','quad','highlight'].indexOf(p.mode)<0) errors.push('演出の種類が正しくありません。');
+    if (p.mode !== undefined && ['cards','half','trapezoid','quad','highlight'].indexOf(p.mode)<0) errors.push('演出の種類が正しくありません。');
     if (p.backgroundMode !== undefined && p.backgroundMode !== 'transparent' && p.backgroundMode !== 'solid') errors.push('背景の種類が正しくありません。');
     if (p.backgroundColor !== undefined && !/^#[0-9a-f]{6}$/i.test(p.backgroundColor)) errors.push('背景の色は6桁のカラーコードで指定してください。');
     if (count) {
       var settings=splitSettings(p);
       if (!settings || typeof settings !== 'object') errors.push(count+'分割の設定がありません。');
       else {
-        if (p.mode==='quad' && ['columns','grid'].indexOf(settings.layout)<0) errors.push('4分割の配置を選び直してください。');
-        range(settings,'angle',-20,20,'斜めの角度'); range(settings,'borderWidth',0,40,'境界線の太さ');
+        if (!validSplitLayout(p)) errors.push(count+'分割の配置を選び直してください。');
+        if (p.mode !== 'half') range(settings,'angle',-20,20,'斜めの角度');
+        range(settings,'borderWidth',0,40,'境界線の太さ');
         range(settings,'slideDuration',0.05,10,'登場にかける時間'); range(settings,'interval',0,10,'登場の間隔'); range(settings,'startAt',0,p.duration,'登場開始時刻');
         if (!/^#[0-9a-f]{6}$/i.test(settings.borderColor || '')) errors.push('境界線の色は6桁のカラーコードで指定してください。');
         if (splitEnd(p) > p.duration + 1e-8) errors.push(count+'つの映像が登場し終わるよう、演出の長さを延ばしてください。');
@@ -304,5 +325,5 @@
     });
     return errors;
   }
-  return { createProject:createProject, upgrade:upgrade, validate:validate, pose:pose, mediaRect:mediaRect, resizeCards:resizeCards, reorder:reorder, layout:layout, arrange:arrange, sequence:sequence, setMode:setMode, splitCount:splitCount, splitSettings:splitSettings, splitEnd:splitEnd, activeCards:activeCards, splitBounds:splitBounds, splitPolygons:splitPolygons, splitPose:splitPose, defaultHighlight:defaultHighlight, highlightLayer:highlightLayer, highlightPolygonValid:highlightPolygonValid, addHighlightLayer:addHighlightLayer, reorderHighlightLayer:reorderHighlightLayer, addHighlightPoint:addHighlightPoint, removeHighlightPoint:removeHighlightPoint };
+  return { createProject:createProject, upgrade:upgrade, validate:validate, pose:pose, mediaRect:mediaRect, resizeCards:resizeCards, reorder:reorder, layout:layout, arrange:arrange, sequence:sequence, setMode:setMode, splitCount:splitCount, splitSettings:splitSettings, validSplitLayout:validSplitLayout, splitEnd:splitEnd, activeCards:activeCards, splitBounds:splitBounds, splitPolygons:splitPolygons, splitPose:splitPose, defaultHighlight:defaultHighlight, highlightLayer:highlightLayer, highlightPolygonValid:highlightPolygonValid, addHighlightLayer:addHighlightLayer, reorderHighlightLayer:reorderHighlightLayer, addHighlightPoint:addHighlightPoint, removeHighlightPoint:removeHighlightPoint };
 }));
