@@ -37,6 +37,9 @@
     if (project.mode === 'half' && project.half === undefined) {
       project.half = { layout:'columns', borderWidth:4, borderColor:'#ffffff', slideDuration:0.8, interval:0.25, startAt:0 };
     }
+    if (project.mode === 'half' && project.half && typeof project.half === 'object' && project.half.dimming === undefined) {
+      project.half.dimming = [defaultDimming(), defaultDimming()];
+    }
     if (project.highlight === undefined) project.highlight=defaultHighlight(project);
     if (Array.isArray(project.cards)) project.cards.forEach(function(c) {
       if (!c || typeof c !== 'object') return;
@@ -172,6 +175,52 @@
     if (project.mode === 'quad') return ['columns','grid'].includes(project.quad.layout);
     return true;
   }
+  function defaultDimming() {
+    return { initial:false, amount:60, fade:0.25, cues:[] };
+  }
+  function validHalfDimming(dimming) {
+    if (dimming === undefined) return true;
+    if (!Array.isArray(dimming) || dimming.length !== 2) return false;
+    return Array.from(dimming).every(function (side) {
+      if (!side || typeof side.initial !== 'boolean' || !Number.isFinite(side.amount) ||
+          side.amount < 0 || side.amount > 100 || !Number.isFinite(side.fade) ||
+          side.fade < 0 || side.fade > 120 || !Array.isArray(side.cues)) return false;
+      var previous = -1;
+      return Array.from(side.cues).every(function (cue) {
+        if (!cue || typeof cue.dark !== 'boolean' || !Number.isFinite(cue.time) ||
+            cue.time < 0 || cue.time > 120 || cue.time <= previous) return false;
+        previous = cue.time;
+        return true;
+      });
+    });
+  }
+  function dimValue(segment, time, fade) {
+    if (fade === 0 || time >= segment.time + fade) return segment.to;
+    return segment.from + (segment.to - segment.from) * ((time - segment.time) / fade);
+  }
+  function dimCurve(side) {
+    var dark = 1 - side.amount / 100;
+    var initial = side.initial ? dark : 1;
+    var segments = [], target = initial;
+    side.cues.forEach(function (cue) {
+      var next = cue.dark ? dark : 1;
+      if (next === target) return;
+      var previous = segments[segments.length - 1];
+      var from = previous ? dimValue(previous, cue.time, side.fade) : initial;
+      segments.push({ time:cue.time, from:from, to:next });
+      target = next;
+    });
+    return { initial:initial, fade:side.fade, segments:segments };
+  }
+  function dimGain(curve, time) {
+    var lo = 0, hi = curve.segments.length;
+    while (lo < hi) {
+      var mid = Math.floor((lo + hi) / 2);
+      if (curve.segments[mid].time <= time) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo ? dimValue(curve.segments[lo - 1], time, curve.fade) : curve.initial;
+  }
   function activeCards(project) {
     var cards = project.cards || [], count = project.mode === 'highlight' ? 1 : splitCount(project);
     return count ? cards.slice(0,count) : cards;
@@ -269,6 +318,7 @@
       if (!settings || typeof settings !== 'object') errors.push(count+'分割の設定がありません。');
       else {
         if (!validSplitLayout(p)) errors.push(count+'分割の配置を選び直してください。');
+        if (p.mode === 'half' && !validHalfDimming(settings.dimming)) errors.push('2分割の暗転の強さ・フェード・切り替え時刻を確認してください。');
         if (p.mode !== 'half') range(settings,'angle',-20,20,'斜めの角度');
         range(settings,'borderWidth',0,40,'境界線の太さ');
         range(settings,'slideDuration',0.05,10,'登場にかける時間'); range(settings,'interval',0,10,'登場の間隔'); range(settings,'startAt',0,p.duration,'登場開始時刻');
@@ -325,5 +375,5 @@
     });
     return errors;
   }
-  return { createProject:createProject, upgrade:upgrade, validate:validate, pose:pose, mediaRect:mediaRect, resizeCards:resizeCards, reorder:reorder, layout:layout, arrange:arrange, sequence:sequence, setMode:setMode, splitCount:splitCount, splitSettings:splitSettings, validSplitLayout:validSplitLayout, splitEnd:splitEnd, activeCards:activeCards, splitBounds:splitBounds, splitPolygons:splitPolygons, splitPose:splitPose, defaultHighlight:defaultHighlight, highlightLayer:highlightLayer, highlightPolygonValid:highlightPolygonValid, addHighlightLayer:addHighlightLayer, reorderHighlightLayer:reorderHighlightLayer, addHighlightPoint:addHighlightPoint, removeHighlightPoint:removeHighlightPoint };
+  return { createProject:createProject, upgrade:upgrade, validate:validate, pose:pose, mediaRect:mediaRect, resizeCards:resizeCards, reorder:reorder, layout:layout, arrange:arrange, sequence:sequence, setMode:setMode, splitCount:splitCount, splitSettings:splitSettings, validSplitLayout:validSplitLayout, splitEnd:splitEnd, activeCards:activeCards, splitBounds:splitBounds, splitPolygons:splitPolygons, splitPose:splitPose, validHalfDimming:validHalfDimming, dimCurve:dimCurve, dimGain:dimGain, defaultHighlight:defaultHighlight, highlightLayer:highlightLayer, highlightPolygonValid:highlightPolygonValid, addHighlightLayer:addHighlightLayer, reorderHighlightLayer:reorderHighlightLayer, addHighlightPoint:addHighlightPoint, removeHighlightPoint:removeHighlightPoint };
 }));

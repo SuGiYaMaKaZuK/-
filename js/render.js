@@ -86,6 +86,7 @@ function validate(project, outputPath) {
     const split = model.splitSettings(project);
     if (!split || typeof split !== 'object') throw new Error(splitCount+'分割の設定がありません。');
     if (!model.validSplitLayout(project)) throw new Error(splitCount+'分割の配置を選び直してください。');
+    if (project.mode === 'half' && !model.validHalfDimming(split.dimming)) throw new Error('2分割の暗転設定を確認してください。');
     if (project.mode !== 'half') number(split.angle, '傾きの角度', -20, 20);
     number(split.borderWidth, '境界線の太さ', 0, 64);
     color(split.borderColor, '境界線の色');
@@ -272,7 +273,7 @@ function mediaFrame(graph, input, prefix, width, height, project, card, startsAt
 
 function buildArgs(project, outputPath, sources, assets) {
   validate(project, outputPath);
-  if (model.splitCount(project)) return buildSplitArgs(project, outputPath, sources);
+  if (model.splitCount(project)) return buildSplitArgs(project, outputPath, sources, assets);
   if (project.mode === 'highlight') return buildHighlightArgs(project, outputPath, sources, assets);
   const args = ['-hide_banner', '-y', '-nostdin', '-loglevel', 'warning', '-filter_complex_threads', '1'];
   const graph = [];
@@ -319,7 +320,25 @@ function buildArgs(project, outputPath, sources, assets) {
   return args;
 }
 
-function buildSplitArgs(project, outputPath, sources) {
+function halfDimCurves(project) {
+  return project.mode === 'half' && project.half.dimming ? project.half.dimming.map(model.dimCurve) : [];
+}
+
+// Two RGB pixels per output frame drive both panels. Source alpha and the divider
+// stay separate from these gains, even when one panel overlaps the other.
+function dimGainFrames(project, curves) {
+  const frames = Math.ceil(project.duration * project.fps);
+  const bytes = Buffer.alloc(frames * 6);
+  for (let frame = 0; frame < frames; frame++) {
+    curves.forEach(function (curve, side) {
+      const offset = 6 * frame + 3 * side;
+      bytes.fill(Math.round(255 * model.dimGain(curve, frame / project.fps)), offset, offset + 3);
+    });
+  }
+  return bytes;
+}
+
+function buildSplitArgs(project, outputPath, sources, assets) {
   const args = ['-hide_banner', '-y', '-nostdin', '-loglevel', 'warning', '-filter_complex_threads', '1'];
   const graph = [];
   const fps = project.fps;
@@ -329,6 +348,13 @@ function buildSplitArgs(project, outputPath, sources) {
   const background = project.backgroundMode === 'solid' ? color(project.backgroundColor, '背景の色') : 'black@0.0';
   graph.push('color=c=' + background + ':s=' + project.width + 'x' + project.height + ':r=' + fps + ':d=' + duration + ',format=rgba[base]');
   let input = 0;
+  const curves = assets && assets.curves || halfDimCurves(project);
+  if (curves.some(curve => curve.segments.length)) {
+    // render() supplies a local file so Windows command length is independent of the timeline.
+    const gainSource = assets && assets.gainPath || 'data:application/octet-stream;base64,' + dimGainFrames(project, curves).toString('base64');
+    args.push('-f','rawvideo','-pixel_format','rgb24','-video_size','2x1','-framerate',String(fps),'-i',gainSource);
+    input++;
+  }
   activeCards(project).forEach(function (card, index) {
     const prefix = 's' + index;
     const points = polygons[index];
@@ -355,6 +381,20 @@ function buildSplitArgs(project, outputPath, sources) {
       graph.push('color=c=' + palette[index] + ':s=' + width + 'x' + height + ':r=' + fps + ':d=' + duration + ',format=rgba[' + prefix + 'media]');
     }
     let layer = prefix + 'media';
+    const curve = curves[index];
+    if (curve && curve.segments.length) {
+      graph.push('[0:v]crop=1:1:' + index + ':0:exact=1,scale=' + width + ':' + height + ':flags=neighbor,format=gbrp[' + prefix + 'gain]');
+      graph.push('[' + layer + ']split[' + prefix + 'rgbSource][' + prefix + 'dimAlphaSource]');
+      graph.push('[' + prefix + 'dimAlphaSource]alphaextract[' + prefix + 'dimAlpha]');
+      graph.push('[' + prefix + 'rgbSource]format=gbrp[' + prefix + 'color]');
+      graph.push('[' + prefix + 'color][' + prefix + 'gain]blend=all_mode=multiply:shortest=1,format=rgba[' + prefix + 'dimRGB]');
+      graph.push('[' + prefix + 'dimRGB][' + prefix + 'dimAlpha]alphamerge,format=rgba[' + prefix + 'dim]');
+      layer = prefix + 'dim';
+    } else if (curve && curve.initial < 1) {
+      const gain = curve.initial;
+      graph.push('[' + layer + ']colorchannelmixer=rr=' + gain + ':gg=' + gain + ':bb=' + gain + '[' + prefix + 'dim]');
+      layer = prefix + 'dim';
+    }
     if (leftSlope || rightSlope || points[0].x !== left || points[1].x !== left+width) {
       graph.push('color=white:s=' + width + 'x' + height + ':r=' + fps + ':d=' + (1 / fps) + ',format=gray,geq=lum=\'255*' + inside + '\'' + repeat + '[' + prefix + 'mask]');
       graph.push('[' + layer + ']split[' + prefix + 'rgb][' + prefix + 'alphaSource]');
@@ -509,6 +549,14 @@ async function render(project, options) {
     if (project.mode === 'highlight') {
       assetDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'card-reveal-highlight-'));
       assets = await writeHighlightAssets(project, assetDirectory, sources[0], options);
+    } else if (project.mode === 'half') {
+      const curves = halfDimCurves(project);
+      if (curves.some(curve => curve.segments.length)) {
+        assetDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'card-reveal-dim-'));
+        const gainPath = path.join(assetDirectory, 'gain.rgb');
+        fs.writeFileSync(gainPath, dimGainFrames(project, curves));
+        assets = { curves, gainPath };
+      }
     }
     return await new Promise(function (resolve, reject) {
     let args;

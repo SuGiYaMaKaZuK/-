@@ -7,6 +7,7 @@
   var selectedLayer=null,selectedPoint=0,polygonEditing=false,highlightCache=null,highlightTimer=null,highlightPending=false;
   var media={},pendingCard=null,canvas=$('preview'),ctx=canvas.getContext('2d');
   var palette=['#7546b8','#157d8d','#ad5c2d','#5374ad'];
+  var dimCurves = [], displayedCues = null, displayedDuration = 0;
   var history=window.CardHistory.create(60),historyReady=false,historyPending=false,historyQueued=false,historyKey=null,historyWindow=900,historyEpoch=0,editContext=null,editSession=0,ownedURLs={};
   function snapshot(){var sources={};Object.keys(media).sort().forEach(function(id){var item=media[id],c=cardByID(id);if(c)sources[id]={path:item.path,url:item.url,type:c.mediaType,objectURL:item.objectURL};});return {project:project,sources:sources};}
   function pruneURLs(){var keep={};Object.keys(media).forEach(function(id){keep[media[id].url]=true;});history.visit(function(value){Object.keys(value.sources || {}).forEach(function(id){keep[value.sources[id].url]=true;});});Object.keys(ownedURLs).forEach(function(url){if(!keep[url]){URL.revokeObjectURL(url);delete ownedURLs[url];}});}
@@ -86,7 +87,92 @@
     $('selected-details').innerHTML=(isSplit() || isHighlight()?'':field(c,'x','カード全体の横の位置 (px)',1)+field(c,'y','カード全体の縦の位置 (px)',1))+field(c,'mediaOffset','動画の再生開始位置 (秒)',.1,0);
     document.querySelector('#card-details summary').textContent=isSplit() || isHighlight()?'動画の再生開始位置を調整':'カード全体の位置・動画の詳細';
     syncMediaControls();
+    syncDimSettings();
   }
+  function syncDimTime() {
+    var input = $('dim-time');
+    if ($('dim-timing').open && document.activeElement !== input) input.value = currentTime.toFixed(2);
+  }
+  function syncDimSettings() {
+    if (project.mode !== 'half') { dimCurves = []; displayedCues = null; return; }
+    var sides = project.half.dimming, index = project.cards.findIndex(function (card) { return card.id === selected; });
+    var side = sides[index], labels = splitLabels();
+    dimCurves = sides.map(Model.dimCurve);
+    document.querySelectorAll('[data-dim-side]').forEach(function (button, i) {
+      button.textContent = labels[i];
+      button.setAttribute('aria-pressed', String(i === index));
+    });
+    $('dim-initial').checked = side.initial;
+    $('dim-amount').value = side.amount;
+    $('dim-percent').value = side.amount + '%';
+    $('dim-fade').value = side.fade;
+    $('dim-time').max = project.duration;
+    if (displayedCues !== side.cues || displayedDuration !== project.duration) {
+      var list = $('dim-cues');
+      list.innerHTML = side.cues.map(function (cue) {
+        var label = cue.time.toFixed(2) + '秒　' + (cue.dark ? '暗く' : '戻す');
+        if (cue.time >= project.duration) label += '（範囲外）';
+        return '<li><button type="button" data-jump="' + cue.time + '">' + label + '</button><button type="button" data-remove="' + cue.time + '" aria-label="' + label + 'を削除">×</button></li>';
+      }).join('');
+      list.hidden = !side.cues.length;
+      displayedCues = side.cues;
+      displayedDuration = project.duration;
+    }
+    syncDimTime();
+  }
+  function selectedDimming() {
+    return project.half.dimming[project.cards.findIndex(function (card) { return card.id === selected; })];
+  }
+  function updateDimSetting(event) {
+    if (renderBusy || project.mode !== 'half') return;
+    var input = event.target, side = selectedDimming();
+    var key = { 'dim-initial':'initial', 'dim-amount':'amount', 'dim-fade':'fade' }[input.id];
+    if (!key) return;
+    var value = key === 'initial' ? input.checked : input.valueAsNumber;
+    if (key !== 'initial') {
+      if (!Number.isFinite(value)) { syncDimSettings(); return; }
+      value = Math.max(0, Math.min(Number(input.max), value));
+      if (value !== input.valueAsNumber) input.value = value;
+    }
+    if (side[key] === value) return;
+    side[key] = value;
+    edited(key === 'initial' ? null : undefined);
+    syncDimSettings(); draw();
+  }
+  $('dim-initial').addEventListener('change', updateDimSetting);
+  $('dim-amount').addEventListener('input', updateDimSetting);
+  $('dim-amount').addEventListener('change', updateDimSetting);
+  $('dim-fade').addEventListener('change', updateDimSetting);
+  $('dim-timing').addEventListener('toggle', syncDimTime);
+  function seekDimTime(time) {
+    setPlaying(false);
+    currentTime = Math.max(0, Math.min(project.duration, time));
+    $('dim-time').value = currentTime.toFixed(2);
+    draw();
+  }
+  $('dim-time').addEventListener('focus', function () { if (!renderBusy) setPlaying(false); });
+  $('dim-time').addEventListener('change', function () {
+    if (!renderBusy) seekDimTime(Number.isFinite(this.valueAsNumber) ? this.valueAsNumber : currentTime);
+  });
+  $('half-dim').addEventListener('click', function (event) {
+    if (renderBusy || project.mode !== 'half') return;
+    var button = event.target.closest('button');
+    if (!button) return;
+    if (button.dataset.dimSide !== undefined) { selectCard(project.cards[Number(button.dataset.dimSide)].id); return; }
+    if (button.dataset.jump !== undefined) { seekDimTime(Number(button.dataset.jump)); return; }
+    var side = selectedDimming();
+    if (button.dataset.remove !== undefined) {
+      side.cues = side.cues.filter(function (cue) { return cue.time !== Number(button.dataset.remove); });
+      edited(null); syncDimSettings(); draw(); $('dim-dark').focus(); return;
+    }
+    if (button.id !== 'dim-dark' && button.id !== 'dim-light') return;
+    setPlaying(false);
+    var time = Math.round(currentTime * 100) / 100, dark = button.id === 'dim-dark';
+    if (time >= project.duration) { status('切り替えたい時刻を、終了より前に指定してください。'); $('dim-time').focus(); return; }
+    side.cues = side.cues.filter(function (cue) { return cue.time !== time; }).concat({ time:time, dark:dark }).sort(function (a,b) { return a.time - b.time; });
+    edited(null); syncDimSettings(); draw();
+    status(time.toFixed(2) + '秒に「' + (dark ? '暗く' : '明るさを戻す') + '」を設定しました。');
+  });
   function syncMediaControls(except){
     var c=cardByID(selected);if(!c)return;
     $('media-x').min=-2*project.width;$('media-x').max=2*project.width;$('media-y').min=-2*project.height;$('media-y').max=2*project.height;
@@ -304,7 +390,11 @@
     var polygons=Model.splitPolygons(project),settings=splitSettings();
     activeCards().forEach(function(c,i){var polygon=polygons[i],pose=Model.splitPose(project,i,currentTime,polygon),item=media[c.id];if(item && item.el.tagName==='VIDEO')manageVideo(item,{visible:pose.visible,front:true,mediaTime:pose.mediaTime});if(!pose.visible)return;
       var frame=Model.splitBounds(polygon),x=frame.x,y=frame.y,w=frame.width,h=frame.height;
-      ctx.save();ctx.translate(0,pose.offsetY);ctx.beginPath();polygon.forEach(function(p,j){if(j)ctx.lineTo(p.x,p.y);else ctx.moveTo(p.x,p.y);});ctx.closePath();ctx.clip();if(item && item.ready)coverImage(item.el,x,y,w,h,c);else{ctx.fillStyle=palette[i%palette.length];ctx.fillRect(x,y,w,h);}
+      ctx.save();ctx.translate(0,pose.offsetY);ctx.beginPath();polygon.forEach(function(p,j){if(j)ctx.lineTo(p.x,p.y);else ctx.moveTo(p.x,p.y);});ctx.closePath();ctx.clip();
+      var gain = dimCurves[i] ? Model.dimGain(dimCurves[i], currentTime) : 1;
+      if (gain < 1) ctx.filter = 'brightness(' + gain + ')';
+      if(item && item.ready)coverImage(item.el,x,y,w,h,c);else{ctx.fillStyle=palette[i%palette.length];ctx.fillRect(x,y,w,h);}
+      if (gain < 1) ctx.filter = 'none';
       if(settings.borderWidth>0){ctx.strokeStyle=settings.borderColor;ctx.lineWidth=settings.borderWidth;ctx.beginPath();function segment(a,b){ctx.moveTo(polygon[a].x,polygon[a].y);ctx.lineTo(polygon[b].x,polygon[b].y);}
         if(polygon[0].x>0)segment(0,3);
         if(polygon[1].x<project.width)segment(1,2);
@@ -313,6 +403,7 @@
         ctx.stroke();}
       ctx.restore();
     });
+    if (project.mode === 'half') syncDimTime();
   }
   function draw(){ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,canvas.width,canvas.height);var scale=canvas.width/project.width;ctx.scale(scale,scale);if(project.backgroundMode==='solid'){ctx.fillStyle=project.backgroundColor || '#10131c';ctx.fillRect(0,0,project.width,project.height);}if(isHighlight()){drawHighlight();$('current-time').textContent=currentTime.toFixed(2);$('scrub').value=currentTime;return;}if(isSplit()){drawSplit();$('current-time').textContent=currentTime.toFixed(2);$('scrub').value=currentTime;return;}project.cards.forEach(function(c,i){var pose=Model.pose(project,c,currentTime),item=media[c.id];if(item && item.el.tagName==='VIDEO')manageVideo(item,pose);if(!pose.visible)return;var w=project.cardWidth,h=project.cardHeight,squeeze=Math.max(.003,Math.abs(pose.scaleX));ctx.save();ctx.translate(pose.x,pose.y);ctx.scale(squeeze,1);ctx.fillStyle=project.backColor;ctx.fillRect(-w/2,-h/2,w,h);ctx.save();ctx.beginPath();ctx.rect(-w/2,-h/2,w,h);ctx.clip();if(pose.front){if(item && item.ready)coverImage(item.el,-w/2,-h/2,w,h,c);else{ctx.fillStyle=palette[i%palette.length];ctx.fillRect(-w/2,-h/2,w,h);}}else drawBack(w,h);ctx.restore();ctx.strokeStyle=project.borderColor;ctx.lineWidth=3;ctx.strokeRect(-w/2+1.5,-h/2+1.5,w-3,h-3);ctx.restore();if(c.id===selected && !playing && !renderBusy){ctx.save();ctx.translate(pose.x,pose.y);ctx.strokeStyle='#d5bcff';ctx.lineWidth=1.4/scale;ctx.setLineDash([5/scale,4/scale]);ctx.strokeRect(-w*squeeze/2-7/scale,-h/2-7/scale,w*squeeze+14/scale,h+14/scale);ctx.restore();}});$('current-time').textContent=currentTime.toFixed(2);$('scrub').value=currentTime;}
   function setPlaying(value){
@@ -382,7 +473,7 @@
   $('sample-project').addEventListener('click',function(){if(renderBusy)return;if(dirty && !window.confirm('現在の設定をサンプルに置き換えます。保存していない変更は失われます。よろしいですか？'))return;var sampleMode=project.mode || 'cards',sample=Bridge.sampleProject?Bridge.sampleProject(sampleMode):Promise.resolve((function(){var p=Model.createProject(sampleMode),files=['boss.png','treasure.png','quest.png','portal.png'];p.cards.forEach(function(card,i){card.name=['ボス','宝箱','次のクエスト','ポータル'][i];card.mediaPath=new URL('examples/media/'+files[i],window.location.href).href;card.mediaType='image';});return p;}()));Promise.resolve(sample).then(function(p){if(project.mode!==sampleMode)return;p=Model.setMode(p,sampleMode);replaceProject(p);currentTime=0;setPlaying(true);status('サンプルを再生しています。「素材を変更」で自分の画像・動画に替えられます。');}).catch(function(e){reportError(e,'サンプルを開けませんでした。素材を選んで作成を始められます。');});});
   $('save-project').addEventListener('click',function(){if(renderBusy)return;if(Bridge.saveProject)Promise.resolve(Bridge.saveProject(project)).then(function(result){if(result!==null){dirty=false;status('設定を保存しました。');}}).catch(function(e){reportError(e,'設定を保存できませんでした。保存先を確認してください。');});else{var blob=new Blob([JSON.stringify(project,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='card-reveal.json';a.click();setTimeout(function(){URL.revokeObjectURL(url);},2000);dirty=false;status('設定を保存しました。ブラウザーで選んだ素材は、開くときに選び直してください。');}});
   $('load-project').addEventListener('click',function(){if(renderBusy)return;if(Bridge.hasHost && Bridge.loadProject)Bridge.loadProject().then(replaceProject).catch(function(e){reportError(e,'設定を開けませんでした。対応するJSONファイルを選んでください。');});else{$('project-input').value='';$('project-input').click();}});$('project-input').addEventListener('change',function(e){var f=e.target.files[0];if(!f)return;var reader=new FileReader();reader.onload=function(){try{replaceProject(JSON.parse(reader.result));}catch(err){reportError(err,'設定を開けませんでした。対応するJSONファイルを選んでください。');}};reader.readAsText(f);});
-  function busy(value){renderBusy=value;syncHistory();$('cancel-render').hidden=!value;$('render-progress').hidden=!value;document.querySelectorAll('input:not([type=range]),[data-media-adjust],#reset-media,#center-media,#choose-selected-media,[data-preset],[data-highlight-setting],[data-layer-setting],[data-layer-enabled],[data-layer-select],#layer-list button,#add-layer,#reset-layers,#fit-highlight,#edit-polygon,#add-point,#remove-point,#selected-point,#point-x,#point-y,select,[data-layout],[data-mode-value],#sample-project,#sequence-cards,#flip-now,#save-project,#load-project,.media-button,.reorder button,#open-output,#retry-import').forEach(function(el){el.disabled=value;});$('render').disabled=value || !Bridge.hasHost;$('compact-render-label').textContent=value?'作成中':'書き出し';$('render').firstElementChild.textContent=value?'動画を作成しています…':'動画を作成して読み込む';window.dispatchEvent(new CustomEvent('cardreveal:busy',{detail:{busy:value}}));if(!value){renderCards();syncMediaControls();if(isHighlight()){renderLayers();syncPointControls();}}}
+  function busy(value){renderBusy=value;$('half-dim').disabled=value;syncHistory();$('cancel-render').hidden=!value;$('render-progress').hidden=!value;document.querySelectorAll('input:not([type=range]),[data-media-adjust],#reset-media,#center-media,#choose-selected-media,[data-preset],[data-highlight-setting],[data-layer-setting],[data-layer-enabled],[data-layer-select],#layer-list button,#add-layer,#reset-layers,#fit-highlight,#edit-polygon,#add-point,#remove-point,#selected-point,#point-x,#point-y,select,[data-layout],[data-mode-value],#sample-project,#sequence-cards,#flip-now,#save-project,#load-project,.media-button,.reorder button,#open-output,#retry-import').forEach(function(el){el.disabled=value;});$('render').disabled=value || !Bridge.hasHost;$('compact-render-label').textContent=value?'作成中':'書き出し';$('render').firstElementChild.textContent=value?'動画を作成しています…':'動画を作成して読み込む';window.dispatchEvent(new CustomEvent('cardreveal:busy',{detail:{busy:value}}));if(!value){renderCards();syncMediaControls();if(isHighlight()){renderLayers();syncPointControls();}}}
   function showResult(result){lastOutput=result.outputPath;$('export-result').hidden=false;$('result-heading').textContent=result.imported?'Premiereに読み込みました':'動画を保存しました';$('result-message').textContent=result.imported?'プロジェクトパネルの動画を、タイムラインの上のトラックにドラッグしてください。':'動画の作成は完了しています。Premiereへの読み込みをやり直すか、保存した動画を手動で読み込めます。';$('result-path').textContent=result.outputPath || '';$('open-output').hidden=!Bridge.openOutputFolder;$('retry-import').hidden=result.imported || !Bridge.importRendered;if(result.importError){$('error-details').hidden=false;$('error-text').textContent=result.importError;}}
   $('render').addEventListener('click',function(){if(!Bridge.hasHost || renderBusy)return;var errors=Model.validate(project);if(errors.length){status(errors.join(' / '),true);return;}setPlaying(false);$('export-result').hidden=true;$('error-details').hidden=true;busy(true);$('render-progress').value=0;$('render-note').textContent='動画を作成する準備をしています…';status('保存先を選ぶと動画の作成が始まります。完了までパネルを開いておいてください。');Bridge.render(project,function(progress){var value=typeof progress==='number'?progress:(progress && progress.progress || 0);$('render-progress').value=Math.round(value*100);$('render-note').textContent='動画を作成中 '+Math.round(value*100)+'%';}).then(function(result){$('render-note').textContent=defaultRenderNote();if(!result){status('動画の作成を中止しました。設定はそのまま残っています。');return;}showResult(result);status(result.imported?'動画ができました。Premiereのプロジェクトパネルから、タイムラインへドラッグしてください。':'動画は保存できました。Premiereへの読み込みを確認してください。');}).catch(function(e){$('render-note').textContent=defaultRenderNote();if(/cancel|abort|中止/i.test(e.message || ''))status('動画の作成を中止しました。設定はそのまま残っています。');else reportError(e,'動画を作成できませんでした。素材の場所とタイミングを確認してください。');}).then(function(){busy(false);draw();});});
   $('cancel-render').addEventListener('click',function(){if(Bridge.cancelRender){Bridge.cancelRender();status('動画の作成を中止しています…');}});

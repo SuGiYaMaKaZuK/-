@@ -452,3 +452,19 @@
 }
 
 .discord-ui .editor-status:empty { padding:0; border:0; min-height:0 }
+
+#half-dim { min-width:0; margin:8px 0; padding:8px; border:1px solid #484c59; border-radius:6px }
+#half-dim legend { padding:0 4px; color:#e3e5ee; font-weight:600 }
+#half-dim .dim-sides, #half-dim .dim-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px }
+#half-dim button { min-height:28px; padding:3px 6px }
+#half-dim [data-dim-side][aria-pressed=true] { color:white; background:#474c70; border-color:#8992d5 }
+#half-dim .dim-check, #half-dim .dim-level { display:flex; align-items:center; gap:7px; margin:7px 0 }
+#half-dim .dim-check input { width:auto; margin:0 }
+#dim-amount { flex:1; min-width:32px }
+#dim-percent { min-width:4ch; text-align:right; font-variant-numeric:tabular-nums }
+#dim-timing { margin:5px 0 0 }
+#dim-timing .field-grid { margin:5px 0 }
+#dim-cues { list-style:none; padding:0; margin:6px 0 0; max-height:110px; overflow:auto }
+#dim-cues li { display:flex; gap:4px; margin:2px 0 }
+#dim-cues [data-jump] { flex:1; text-align:left }
+#dim-cues [data-remove] { width:30px }
