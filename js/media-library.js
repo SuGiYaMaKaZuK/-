@@ -1,11 +1,11 @@
 (function (root, factory) {
-  var library = root.CardLibrary, groups = root.CardMediaGroups;
+  var library = root.CardLibrary, groups = root.CardMediaGroups, model = root.CardModel;
   if (typeof window === 'undefined' && typeof module === 'object' && module.exports) {
-    library = require('./library'); groups = require('./media-groups');
+    library = require('./library'); groups = require('./media-groups'); model = require('./model');
   }
-  var api = factory(library, groups); if (typeof module === 'object' && module.exports) module.exports = api;
+  var api = factory(library, groups, model); if (typeof module === 'object' && module.exports) module.exports = api;
   root.CardMediaLibrary = api;
-}(typeof window !== 'undefined' ? window : this, function (library, groups) {
+}(typeof window !== 'undefined' ? window : this, function (library, groups, model) {
   'use strict';
   function collect(state) {
     state = state || {};
@@ -24,9 +24,7 @@
     }
     (state.assets || []).forEach(function (asset) { add(asset, null, asset); });
     (state.presets || []).forEach(function (preset) {
-      var project = preset.project || {}, cards = project.cards || [];
-      if (project.mode === 'highlight') cards = cards.slice(0, 1); else if (project.mode === 'trapezoid') cards = cards.slice(0, 3);
-      cards.forEach(function (card) { add(card, preset, null); });
+      model.activeCards(preset.project || {}).forEach(function (card) { add(card, preset, null); });
     });
     return records;
   }

@@ -80,7 +80,11 @@
   }
   function placementFrom(project,cardId){
     var c=project.cards.find(function(c){return c.id===cardId;});if(!c)throw new Error('保存する素材を選んでください。');
-    return validatePlacement({mediaPath:c.mediaPath,mediaType:c.mediaType,sourceName:c.name,mediaScale:c.mediaScale,mediaX:c.mediaX,mediaY:c.mediaY,referenceWidth:project.width,referenceHeight:project.height,frameWidth:project.mode==='highlight'?project.highlight.width:(project.mode==='trapezoid'?project.width/3:project.cardWidth),frameHeight:project.mode==='highlight'?project.highlight.height:(project.mode==='trapezoid'?project.height:project.cardHeight)});
+    var frame={width:project.cardWidth,height:project.cardHeight};
+    if(project.mode==='highlight')frame=project.highlight;
+    if(project.mode==='trapezoid')frame={width:project.width/3,height:project.height};
+    if(project.mode==='quad' && project.cards.indexOf(c)<4)frame=Model.splitBounds(Model.splitPolygons(project)[project.cards.indexOf(c)]);
+    return validatePlacement({mediaPath:c.mediaPath,mediaType:c.mediaType,sourceName:c.name,mediaScale:c.mediaScale,mediaX:c.mediaX,mediaY:c.mediaY,referenceWidth:project.width,referenceHeight:project.height,frameWidth:frame.width,frameHeight:frame.height});
   }
   function savePlacement(state,options){
     var label=name(options.name),source=validatePlacement(options),existing=options.id?(state.assets || []).find(function(p){return p.id===options.id;}):null;

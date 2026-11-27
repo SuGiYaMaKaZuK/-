@@ -82,6 +82,9 @@ test('sample projects use bundled native media paths and start from fresh editab
   assert.equal(env.model.validate(project).length, 0);
   project.cards[0].name = '編集後';
   assert.equal((await env.api.sampleProject()).cards[0].name, 'ボス');
+  const four = await env.api.sampleProject('quad');
+  assert.equal(four.mode, 'quad');
+  assert.equal(four.cards[3].mediaPath, path.join(env.root, 'examples', 'media', 'portal.png'));
   assert.equal(env.scripts.length, 0);
 });
 

@@ -1,7 +1,7 @@
 (function () {
   'use strict';
   var api = window.CardBridge = { hasHost: false };
-  var connection = { version: '0.17.1', cepAvailable: !!(window.__adobe_cep__ && typeof window.__adobe_cep__.evalScript === 'function'), nodeAvailable: false, ready: false, initializationError: null, lastRequest: null }, requestId = 0;
+  var connection = { version: '0.18.0', cepAvailable: !!(window.__adobe_cep__ && typeof window.__adobe_cep__.evalScript === 'function'), nodeAvailable: false, ready: false, initializationError: null, lastRequest: null }, requestId = 0;
   api.mediaTypeForName = function (name) {
     if (/\.(png|jpe?g|webp|bmp|tiff?)$/i.test(name)) return 'image';
     if (/\.(mp4|mov|m4v|avi|mkv|webm|mts|m2ts|mxf)$/i.test(name)) return 'video';
@@ -37,13 +37,17 @@
     if (!result || result.ok !== true || typeof result.appVersion !== 'string' || typeof result.hasProject !== 'boolean' || typeof result.hasSequence !== 'boolean' || !Number.isInteger(result.selectionCount) || result.selectionCount < 0) throw communicationError(result && result.error ? 'Premiere: ' + result.error : '接続確認の結果を読み取れませんでした。', 'CEP_PROBE_ERROR', 'probe');
     return result;
   };
-  api.sampleProject = async function () {
+  api.sampleProject = async function (mode) {
     var project = window.CardModel.createProject();
     var examples = [
       { file: 'boss.png', name: 'ボス' },
       { file: 'treasure.png', name: '宝箱' },
       { file: 'quest.png', name: '次の冒険' }
     ];
+    if (mode === 'quad') {
+      window.CardModel.setMode(project, mode);
+      examples.push({ file:'portal.png', name:'ポータル' });
+    }
     project.cards.forEach(function (card, index) {
       card.name = examples[index].name;
       card.mediaType = 'image';

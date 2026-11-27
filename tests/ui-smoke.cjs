@@ -38,7 +38,7 @@ async function pickFixture(page,index=0){await page.locator('[data-media]').nth(
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const url='http://127.0.0.1:'+server.address().port;
  browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH || '/usr/bin/chromium',headless:true,args:['--no-sandbox']});
  const errors=[],page=await browser.newPage({viewport:{width:1440,height:900},acceptDownloads:true});page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
- await page.goto(url);assert.equal(await page.locator('.group-tab').textContent(),'Main');assert.equal(await page.locator('[data-template-mode]').count(),3);assert.equal(await page.locator('#editor-dialog').isVisible(),false);assert.equal(await page.locator('#empty-group').isVisible(),true);
+ await page.goto(url);assert.equal(await page.locator('.group-tab').textContent(),'Main');assert.equal(await page.locator('[data-template-mode]').count(),4);assert.equal(await page.locator('#editor-dialog').isVisible(),false);assert.equal(await page.locator('#empty-group').isVisible(),true);
  // Open a fresh original, change actual source/shape/layers, then save it.
  await openTemplate(page,'#template-highlight');await pickFixture(page);await page.waitForFunction(()=>CardPanel.getProject().highlight.width===864&&CardPanel.getProject().highlight.height===864);
  await fill(page,'#media-scale',135);await fill(page,'#media-x',25);await fill(page,'#media-y',-15);await page.locator('#highlight-shape').selectOption('polygon');await fill(page,'[data-highlight-setting="rotation"]',15);await fill(page,'#layer-width',9);await fill(page,'#layer-color','#28c7ff');

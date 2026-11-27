@@ -1,16 +1,25 @@
-# Card Reveal Studio v0.17.1
+# Card Reveal Studio v0.18.0
 
-Premiere Pro 2026（26.x）・Windows向けの編集支援パネルです。カードめくり・台形3分割・画像の外周強調を作成し、編集済みの素材として保存できます。DiscordをイメージしたUIで、プラグイン・動画・画像を切り替えます。
+Premiere Pro 2026（26.x）・Windows向けの編集支援パネルです。カードめくり・台形3分割・4分割スライド・画像の外周強調を作成し、編集済みの素材として保存できます。DiscordをイメージしたUIで、プラグイン・動画・画像を切り替えます。
 
 ## ダウンロードと更新
 
-1. [更新用ZIPをダウンロード](https://github.com/SuGiYaMaKaZuK/-/raw/refs/heads/main/CardReveal-v0.17.1.zip)します。
+1. [更新用ZIPをダウンロード](https://github.com/SuGiYaMaKaZuK/-/raw/refs/heads/main/CardReveal-v0.18.0.zip)します。
 2. Premiereを終了し、ZIPを右クリックして **すべて展開** します。
 3. 展開した **Install.cmd** を実行します。管理者権限は不要です。
 4. 初回は描画用FFmpegを取得します。Premiereを起動し、**ウィンドウ → エクステンション → Card Reveal カード演出** を開きます。
-5. 左端のプラグインアイコンにマウスを置くと、バージョン **v0.17.1** を確認できます。
+5. 左端のプラグインアイコンにマウスを置くと、バージョン **v0.18.0** を確認できます。
 
 更新後も保存済みの演出と素材・配置を引き継ぎます。GitHubのCode → Download ZIPから取得した場合は、インストール時にサンプル画像を復元します。
+
+## 4つの素材を上から登場させる
+
+1. **プラグイン → # 元素材 → 4分割スライド** を開き、4つの **＋** に画像や動画を1つずつドロップします。＋をクリックしても選べます。
+2. **設定 → 配置** で **横4列** または **田の字（2×2）** を選びます。横4列は左から順に、田の字は左上・右上・左下・右下の順に降りてきます。
+3. **登場の間隔** を **0秒** にすると4つが同時に降ります。各素材の大きさ・X/Y、降りてくる時間、境界線の太さと色も調整できます。
+4. **▶** で動きを確認し、**書き出し** で映像を作成します。次回も使う設定は **保存** でグループに登録します。
+
+![同じ4素材が上から降りる動画。左が横4列、右が田の字](https://raw.githubusercontent.com/SuGiYaMaKaZuK/-/main/docs/four-panel-slide.gif)
 
 ## 透過素材に縁取りを付ける
 
@@ -22,7 +31,7 @@ Premiere Pro 2026（26.x）・Windows向けの編集支援パネルです。カ�
 
 線の色や太さ、光の広がりはレイヤーごとに調整できます。素材を四角・角丸・多角形で囲むときは **透過素材の輪郭に沿う** をオフにします。
 
-![同じ透過PNGの書き出し。左がv0.17.0、右が今回の光る縁取り](https://raw.githubusercontent.com/SuGiYaMaKaZuK/-/main/docs/glowing-outline-preview.png)
+![同じ透過PNGの書き出し。左がv0.17.0、右が金色の光る縁取り](https://raw.githubusercontent.com/SuGiYaMaKaZuK/-/main/docs/glowing-outline-preview.png)
 
 ## 軽量版の変更
 
@@ -42,7 +51,7 @@ Premiere Pro 2026（26.x）・Windows向けの編集支援パネルです。カ�
 
 ## プラグインを作る・保存する
 
-**# 元素材** から、カードめくり・台形3分割・外周強調のいずれかを選びます。画像・動画、位置・大きさ・X/Y、演出の動きなどを編集し、**グループに保存** で名前を付けます。
+**# 元素材** から、カードめくり・台形3分割・4分割スライド・外周強調のいずれかを選びます。画像・動画、位置・大きさ・X/Y、演出の動きなどを編集し、**グループに保存** で名前を付けます。
 
 ![元素材の選択](https://github.com/SuGiYaMaKaZuK/-/raw/refs/heads/main/docs/channels-originals-preview.png)
 
@@ -52,7 +61,7 @@ Premiere Pro 2026（26.x）・Windows向けの編集支援パネルです。カ�
 
 ![カードに画像または動画をドロップ](https://raw.githubusercontent.com/SuGiYaMaKaZuK/-/main/docs/card-drop-preview.png)
 
-カードは1〜12枚で、上から登場し、好きな位置・順番・時刻でめくれます。台形3分割では3素材を上から登場させます。外周強調は素材の縦横比から枠を合わせ、形・色・発光・レイヤーを調整できます。
+カードは1〜12枚で、上から登場し、好きな位置・順番・時刻でめくれます。台形3分割では3素材、4分割スライドでは4素材を上から登場させます。外周強調は素材の縦横比から枠を合わせ、形・色・発光・レイヤーを調整できます。
 
 ![編集画面](https://github.com/SuGiYaMaKaZuK/-/raw/refs/heads/main/docs/channels-editor-preview.png)
 
@@ -113,7 +122,7 @@ Premiere Pro 2026（26.x）・Windows向けの編集支援パネルです。カ�
 
 ## 開発・確認状況
 
-`npm test` でモデル・ファイル処理・互換性・素材グループを確認します。PlaywrightとChromiumを用意して `node tests/ui-smoke.cjs`、`node tests/editing-ui-smoke.cjs`、`node tests/channels-ui-smoke.cjs`、`node tests/file-drop-ui-smoke.cjs`、`node tests/compact-layout-ui-smoke.cjs`、`node tests/performance-ui-smoke.cjs` と `node tests/alpha-outline-ui-smoke.cjs` を実行できます。動画確認にはFFmpeg・ffprobeを使用します。パネル利用時にnpmの導入は不要です。
+`npm test` でモデル・ファイル処理・互換性・素材グループを確認します。PlaywrightとChromiumを用意して `node tests/ui-smoke.cjs`、`node tests/editing-ui-smoke.cjs`、`node tests/channels-ui-smoke.cjs`、`node tests/file-drop-ui-smoke.cjs`、`node tests/compact-layout-ui-smoke.cjs`、`node tests/performance-ui-smoke.cjs`、`node tests/alpha-outline-ui-smoke.cjs` と `node tests/quad-ui-smoke.cjs` を実行できます。動画確認にはFFmpeg・ffprobeを使用します。パネル利用時にnpmの導入は不要です。
 
 画面写真はサンプル素材を使い、実際のパネルを操作して撮影したものです。Premiereの通信は模擬しています。**WindowsのインストーラーとPremiere Pro 2026実機での連携は未検証です。** [検証結果を見る](https://github.com/SuGiYaMaKaZuK/-/blob/main/検証結果.txt)
 

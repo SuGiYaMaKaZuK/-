@@ -67,8 +67,7 @@
   window.addEventListener('cardreveal:editor-opened', function () {
     extra.open = !compact.matches;
     var project = window.CardPanel.getProject();
-    var count = project.mode === 'highlight' ? 1 : project.mode === 'trapezoid' ? 3 : project.cards.length;
-    var hasSource = project.cards.slice(0, count).some(function (card) { return !!card.mediaPath; });
+    var hasSource = window.CardModel.activeCards(project).some(function (card) { return !!card.mediaPath; });
     show(hasSource ? 'pane-preview' : 'pane-media');
     buttons.forEach(function (button) { $(button.getAttribute('aria-controls')).scrollTop = 0; });
   });

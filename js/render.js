@@ -12,7 +12,7 @@ const alphaSource = require('./alpha-source');
 const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 
-function activeCards(project) { return project.mode === 'trapezoid' ? project.cards.slice(0, 3) : project.mode === 'highlight' ? project.cards.slice(0, 1) : project.cards; }
+const activeCards = model.activeCards;
 
 function failure(code, message, details) {
   const error = new Error(message);
@@ -80,17 +80,19 @@ function validate(project, outputPath) {
   if (!Array.isArray(project.cards) || project.cards.length < 1 || project.cards.length > 12) throw new Error('カードは1〜12枚にしてください。');
   if (project.backgroundMode && ['transparent', 'solid'].indexOf(project.backgroundMode) === -1) throw new Error('背景は透過または単色にしてください。');
   if (project.backgroundMode === 'solid') color(project.backgroundColor, '背景の色');
-  if (project.mode === 'trapezoid') {
-    if (project.cards.length < 3) throw new Error('台形3分割には素材を3つ用意してください。');
-    const split = project.trapezoid;
-    if (!split || typeof split !== 'object') throw new Error('台形3分割の設定がありません。');
+  const splitCount = model.splitCount(project);
+  if (splitCount) {
+    if (project.cards.length < splitCount) throw new Error(splitCount+'分割には素材を'+splitCount+'つ用意してください。');
+    const split = model.splitSettings(project);
+    if (!split || typeof split !== 'object') throw new Error(splitCount+'分割の設定がありません。');
+    if (project.mode === 'quad' && !['columns','grid'].includes(split.layout)) throw new Error('4分割の配置を選び直してください。');
     number(split.angle, '傾きの角度', -20, 20);
     number(split.borderWidth, '境界線の太さ', 0, 64);
     color(split.borderColor, '境界線の色');
     number(split.slideDuration, 'スライド時間', 0.05, 10);
     number(split.interval, '登場の間隔', 0, 30);
     number(split.startAt, '登場開始時刻', 0, project.duration);
-    if (split.startAt + 2 * split.interval + split.slideDuration > project.duration + 0.000001) throw new Error('3枚目のスライドが終わるように演出の長さを延ばしてください。');
+    if (model.splitEnd(project) > project.duration + 0.000001) throw new Error(splitCount+'枚目のスライドが終わるように演出の長さを延ばしてください。');
   }
   if (project.mode === 'highlight') {
     const highlight = project.highlight;
@@ -126,7 +128,7 @@ function validate(project, outputPath) {
   if (typeof outputPath !== 'string' || !path.isAbsolute(outputPath) || path.extname(outputPath).toLowerCase() !== '.mov') throw new Error('書き出し先は絶対パスの .mov ファイルにしてください。');
   activeCards(project).forEach(function (card, index) {
     const label = cardLabel(card, index);
-    if (project.mode !== 'trapezoid' && project.mode !== 'highlight') {
+    if (!splitCount && project.mode !== 'highlight') {
       number(card.x, label + 'のX位置', -7680, 15360);
       number(card.y, label + 'のY位置', -4320, 8640);
       number(card.dropAt, label + 'の登場時刻', 0, project.duration);
@@ -270,7 +272,7 @@ function mediaFrame(graph, input, prefix, width, height, project, card, startsAt
 
 function buildArgs(project, outputPath, sources, assets) {
   validate(project, outputPath);
-  if (project.mode === 'trapezoid') return buildTrapezoidArgs(project, outputPath, sources);
+  if (model.splitCount(project)) return buildSplitArgs(project, outputPath, sources);
   if (project.mode === 'highlight') return buildHighlightArgs(project, outputPath, sources, assets);
   const args = ['-hide_banner', '-y', '-nostdin', '-loglevel', 'warning', '-filter_complex_threads', '1'];
   const graph = [];
@@ -317,23 +319,20 @@ function buildArgs(project, outputPath, sources, assets) {
   return args;
 }
 
-function buildTrapezoidArgs(project, outputPath, sources) {
+function buildSplitArgs(project, outputPath, sources) {
   const args = ['-hide_banner', '-y', '-nostdin', '-loglevel', 'warning', '-filter_complex_threads', '1'];
   const graph = [];
   const fps = project.fps;
   const duration = project.duration;
-  const height = project.height;
-  const settings = project.trapezoid;
+  const settings = model.splitSettings(project);
   const polygons = model.splitPolygons(project);
   const background = project.backgroundMode === 'solid' ? color(project.backgroundColor, '背景の色') : 'black@0.0';
-  graph.push('color=c=' + background + ':s=' + project.width + 'x' + height + ':r=' + fps + ':d=' + duration + ',format=rgba[base]');
+  graph.push('color=c=' + background + ':s=' + project.width + 'x' + project.height + ':r=' + fps + ':d=' + duration + ',format=rgba[base]');
   let input = 0;
   activeCards(project).forEach(function (card, index) {
     const prefix = 's' + index;
     const points = polygons[index];
-    const left = Math.floor(Math.min.apply(null, points.map(function (point) { return point.x; })));
-    const right = Math.ceil(Math.max.apply(null, points.map(function (point) { return point.x; })));
-    const width = right - left;
+    const {x:left, y:top, width, height} = model.splitBounds(points);
     const dropAt = settings.startAt + index * settings.interval;
     const leftSlope = (points[3].x - points[0].x) / height;
     const rightSlope = (points[2].x - points[1].x) / height;
@@ -343,37 +342,43 @@ function buildTrapezoidArgs(project, outputPath, sources) {
     // Compute static masks once, then repeat the single frame. No per-pixel
     // polygon expression is evaluated during each 60/90/120fps media frame.
     const repeat = ',loop=loop=-1:size=1:start=0,setpts=N/(' + fps + '*TB),trim=duration=' + duration;
-    graph.push('color=white:s=' + width + 'x' + height + ':r=' + fps + ':d=' + (1 / fps) + ',format=gray,geq=lum=\'255*' + inside + '\'' + repeat + '[' + prefix + 'mask]');
     if (card.mediaPath) {
       if (card.mediaType === 'image') args.push('-loop', '1', '-framerate', String(fps));
       else if (card.mediaOffset) args.push('-ss', String(card.mediaOffset));
+      if (sources && sources[index] && sources[index].decoder) args.push('-c:v',sources[index].decoder);
       args.push('-i', card.mediaPath);
       const frame = mediaFrame(graph, input, prefix, width, height, project, card, dropAt, sources && sources[index]);
       graph.push('[' + frame + ']null[' + prefix + 'media]');
       input += 1;
     } else {
-      const palette = ['0x7546b8', '0x157d8d', '0xad5c2d'];
+      const palette = ['0x7546b8', '0x157d8d', '0xad5c2d', '0x5374ad'];
       graph.push('color=c=' + palette[index] + ':s=' + width + 'x' + height + ':r=' + fps + ':d=' + duration + ',format=rgba[' + prefix + 'media]');
     }
-    graph.push('[' + prefix + 'media]split[' + prefix + 'rgb][' + prefix + 'alphaSource]');
-    graph.push('[' + prefix + 'alphaSource]alphaextract[' + prefix + 'alpha]');
-    graph.push('[' + prefix + 'alpha][' + prefix + 'mask]blend=all_mode=multiply[' + prefix + 'maskedAlpha]');
-    graph.push('[' + prefix + 'rgb][' + prefix + 'maskedAlpha]alphamerge[' + prefix + 'clipped]');
-    let layer = prefix + 'clipped';
+    let layer = prefix + 'media';
+    if (leftSlope || rightSlope || points[0].x !== left || points[1].x !== left+width) {
+      graph.push('color=white:s=' + width + 'x' + height + ':r=' + fps + ':d=' + (1 / fps) + ',format=gray,geq=lum=\'255*' + inside + '\'' + repeat + '[' + prefix + 'mask]');
+      graph.push('[' + layer + ']split[' + prefix + 'rgb][' + prefix + 'alphaSource]');
+      graph.push('[' + prefix + 'alphaSource]alphaextract[' + prefix + 'alpha]');
+      graph.push('[' + prefix + 'alpha][' + prefix + 'mask]blend=all_mode=multiply[' + prefix + 'maskedAlpha]');
+      graph.push('[' + prefix + 'rgb][' + prefix + 'maskedAlpha]alphamerge[' + prefix + 'clipped]');
+      layer = prefix + 'clipped';
+    }
     if (settings.borderWidth > 0) {
       const edges = [];
-      if (index > 0) edges.push('lte(abs(X-' + leftEdge + ')/' + Math.sqrt(1 + leftSlope * leftSlope) + ',' + settings.borderWidth / 2 + ')');
-      if (index < 2) edges.push('lte(abs(X-' + rightEdge + ')/' + Math.sqrt(1 + rightSlope * rightSlope) + ',' + settings.borderWidth / 2 + ')');
+      if (points[0].x > 0) edges.push('lte(abs(X-' + leftEdge + ')/' + Math.sqrt(1 + leftSlope * leftSlope) + ',' + settings.borderWidth / 2 + ')');
+      if (points[1].x < project.width) edges.push('lte(abs(X-' + rightEdge + ')/' + Math.sqrt(1 + rightSlope * rightSlope) + ',' + settings.borderWidth / 2 + ')');
+      if (top > 0) edges.push('lte(Y,' + settings.borderWidth / 2 + ')');
+      if (top+height < project.height) edges.push('lte(' + height + '-Y,' + settings.borderWidth / 2 + ')');
       const boundary = 'min(1,' + edges.join('+') + ')*' + inside;
       graph.push('color=c=' + color(settings.borderColor, '境界線の色') + ':s=' + width + 'x' + height + ':r=' + fps + ':d=' + (1 / fps) + ',format=rgba,geq=r=\'r(X,Y)\':g=\'g(X,Y)\':b=\'b(X,Y)\':a=\'255*(' + boundary + ')\'' + repeat + '[' + prefix + 'border]');
-      graph.push('[' + prefix + 'clipped][' + prefix + 'border]overlay=0:0:format=auto[' + prefix + 'layer]');
+      graph.push('[' + layer + '][' + prefix + 'border]overlay=0:0:format=auto[' + prefix + 'layer]');
       layer = prefix + 'layer';
     }
     const previous = index === 0 ? 'base' : 'out' + (index - 1);
     const progress = 'clip((t-' + dropAt + ')/' + settings.slideDuration + ',0,1)';
-    graph.push('[' + previous + '][' + layer + ']overlay=x=' + left + ':y=\'-' + height + '*pow(1-' + progress + ',3)\':enable=\'gte(t,' + dropAt + ')\':eval=frame:format=auto[out' + index + ']');
+    graph.push('[' + previous + '][' + layer + ']overlay=x=' + left + ':y=\'' + top + '-' + (top+height) + '*pow(1-' + progress + ',3)\':enable=\'gte(t,' + dropAt + ')\':eval=frame:format=auto[out' + index + ']');
   });
-  args.push('-filter_complex', graph.join(';'), '-map', '[out2]', '-an', '-t', String(duration), '-r', String(fps), '-c:v', 'prores_ks', '-profile:v', '4', '-pix_fmt', 'yuva444p10le', '-alpha_bits', '16', '-vendor', 'apl0', '-metadata:s:v:0', 'alpha_mode=1', '-progress', 'pipe:1', '-nostats', outputPath);
+  args.push('-filter_complex', graph.join(';'), '-map', '[out'+(polygons.length-1)+']', '-an', '-t', String(duration), '-r', String(fps), '-c:v', 'prores_ks', '-profile:v', '4', '-pix_fmt', 'yuva444p10le', '-alpha_bits', '16', '-vendor', 'apl0', '-metadata:s:v:0', 'alpha_mode=1', '-progress', 'pipe:1', '-nostats', outputPath);
   return args;
 }
 

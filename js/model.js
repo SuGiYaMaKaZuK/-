@@ -30,6 +30,7 @@
     if (project.backgroundMode === undefined) project.backgroundMode = 'transparent';
     if (project.backgroundColor === undefined) project.backgroundColor = '#10131c';
     if (project.trapezoid === undefined) project.trapezoid = { angle: 8, borderWidth: 4, borderColor: '#ffffff', slideDuration: 0.8, interval: 0.25, startAt: 0 };
+    if (project.mode === 'quad' && project.quad === undefined) project.quad = { layout:'columns', angle:0, borderWidth:4, borderColor:'#ffffff', slideDuration:0.8, interval:0.25, startAt:0 };
     if (project.highlight === undefined) project.highlight=defaultHighlight(project);
     if (Array.isArray(project.cards)) project.cards.forEach(function(c) {
       if (!c || typeof c !== 'object') return;
@@ -148,16 +149,46 @@
     project.duration = Math.max(project.duration, Math.ceil(end));
     return project;
   }
+  function splitCount(project) {
+    return project.mode === 'quad' ? 4 : (project.mode === 'trapezoid' ? 3 : 0);
+  }
+  function splitSettings(project) {
+    return project.mode === 'quad' ? project.quad : project.trapezoid;
+  }
+  function activeCards(project) {
+    var cards = project.cards || [], count = project.mode === 'highlight' ? 1 : splitCount(project);
+    return count ? cards.slice(0,count) : cards;
+  }
+  function splitEnd(project) {
+    var settings = splitSettings(project);
+    return settings.startAt + (splitCount(project)-1) * settings.interval + settings.slideDuration;
+  }
   function setMode(project, mode) {
-    if (mode !== 'cards' && mode !== 'trapezoid' && mode !== 'highlight') throw new Error('演出の種類が正しくありません。');
-    upgrade(project);
-    if (mode === 'trapezoid' && project.cards.length < 3) resizeCards(project, 3);
+    if (['cards','trapezoid','quad','highlight'].indexOf(mode)<0) throw new Error('演出の種類が正しくありません。');
     project.mode = mode;
-    if (mode === 'trapezoid') project.duration = Math.max(project.duration, project.trapezoid.startAt + 2 * project.trapezoid.interval + project.trapezoid.slideDuration + 1);
+    upgrade(project);
+    var count=splitCount(project);
+    if (project.cards.length < count) resizeCards(project, count);
+    if (count) project.duration = Math.max(project.duration, Math.min(120,splitEnd(project)+1));
     return project;
   }
   function splitPolygons(project) {
     var w = project.width, h = project.height;
+    if (project.mode === 'quad') {
+      var quad = project.quad, grid = quad.layout === 'grid', cols = grid ? 2 : 4;
+      var tilt = grid ? 0 : clamp(Math.tan(quad.angle * Math.PI / 180) * h, -w * .10, w * .10);
+      var boundaries = [];
+      for (var col=0; col<=cols; col++) {
+        var topX = Math.round(w*col/cols);
+        var bottomX = col===0 || col===cols ? topX : topX + (col%2 ? -tilt : tilt);
+        boundaries.push({top:topX,bottom:bottomX});
+      }
+      return [0,1,2,3].map(function(index) {
+        var left=boundaries[index%cols],right=boundaries[index%cols+1];
+        var top = grid && index>=2 ? h/2 : 0, bottom = grid && index<2 ? h/2 : h;
+        return [{x:left.top,y:top},{x:right.top,y:top},{x:right.bottom,y:bottom},{x:left.bottom,y:bottom}];
+      });
+    }
     var angle = project.trapezoid ? project.trapezoid.angle : 8;
     var delta = clamp(Math.tan(angle * Math.PI / 180) * h, -w * 0.15, w * 0.24);
     var a = w / 3, b = 2 * w / 3;
@@ -167,12 +198,17 @@
       [{x:b,y:0},{x:w,y:0},{x:w,y:h},{x:b+delta,y:h}]
     ];
   }
+  function splitBounds(points) {
+    var left=Math.floor(Math.min(points[0].x,points[3].x)),right=Math.ceil(Math.max(points[1].x,points[2].x));
+    return {x:left,y:points[0].y,width:right-left,height:points[3].y-points[0].y};
+  }
   function splitPose(project, index, t) {
-    var options = project.trapezoid || { slideDuration:0.8, interval:0.25, startAt:0 };
+    var options = splitSettings(project) || { slideDuration:0.8, interval:0.25, startAt:0 };
     var dropAt = options.startAt + index * options.interval;
     var p = clamp((t - dropAt) / options.slideDuration, 0, 1);
     var item = project.cards[index];
-    return { offsetY: p >= 1 ? 0 : -project.height * Math.pow(1 - p, 3), visible: t >= dropAt, front:true, mediaTime: (item ? item.mediaOffset : 0) + Math.max(0, t - dropAt), dropAt:dropAt };
+    var travel = project.mode==='quad' && options.layout==='grid' && index<2 ? project.height/2 : project.height;
+    return { offsetY: p >= 1 ? 0 : -travel * Math.pow(1 - p, 3), visible: t >= dropAt, front:true, mediaTime: (item ? item.mediaOffset : 0) + Math.max(0, t - dropAt), dropAt:dropAt };
   }
   function reorder(project, from, to) {
     if (from < 0 || to < 0 || from >= project.cards.length || to >= project.cards.length) return project;
@@ -204,16 +240,19 @@
     range(p,'cardWidth',16,3840,'カードの幅',true); range(p,'cardHeight',16,2160,'カードの高さ',true);
     range(p,'dropDuration',0.05,10,'降下時間'); range(p,'flipDuration',0.05,10,'めくり時間');
     ['backColor','borderColor'].forEach(function (key) { if (!/^#[0-9a-f]{6}$/i.test(p[key] || '')) errors.push('カードの色は6桁のカラーコードで指定してください。'); });
-    if (p.mode !== undefined && p.mode !== 'cards' && p.mode !== 'trapezoid' && p.mode !== 'highlight') errors.push('演出の種類が正しくありません。');
+    var count=splitCount(p), cardTiming=!count && p.mode!=='highlight';
+    if (p.mode !== undefined && ['cards','trapezoid','quad','highlight'].indexOf(p.mode)<0) errors.push('演出の種類が正しくありません。');
     if (p.backgroundMode !== undefined && p.backgroundMode !== 'transparent' && p.backgroundMode !== 'solid') errors.push('背景の種類が正しくありません。');
     if (p.backgroundColor !== undefined && !/^#[0-9a-f]{6}$/i.test(p.backgroundColor)) errors.push('背景の色は6桁のカラーコードで指定してください。');
-    if (p.mode === 'trapezoid') {
-      if (!p.trapezoid || typeof p.trapezoid !== 'object') errors.push('台形3分割の設定がありません。');
+    if (count) {
+      var settings=splitSettings(p);
+      if (!settings || typeof settings !== 'object') errors.push(count+'分割の設定がありません。');
       else {
-        range(p.trapezoid,'angle',-20,20,'斜めの角度'); range(p.trapezoid,'borderWidth',0,40,'境界線の太さ');
-        range(p.trapezoid,'slideDuration',0.05,10,'登場にかける時間'); range(p.trapezoid,'interval',0,10,'登場の間隔'); range(p.trapezoid,'startAt',0,p.duration,'登場開始時刻');
-        if (!/^#[0-9a-f]{6}$/i.test(p.trapezoid.borderColor || '')) errors.push('境界線の色は6桁のカラーコードで指定してください。');
-        if (p.trapezoid.startAt + 2 * p.trapezoid.interval + p.trapezoid.slideDuration > p.duration + 1e-8) errors.push('3つの映像が登場し終わるよう、演出の長さを延ばしてください。');
+        if (p.mode==='quad' && ['columns','grid'].indexOf(settings.layout)<0) errors.push('4分割の配置を選び直してください。');
+        range(settings,'angle',-20,20,'斜めの角度'); range(settings,'borderWidth',0,40,'境界線の太さ');
+        range(settings,'slideDuration',0.05,10,'登場にかける時間'); range(settings,'interval',0,10,'登場の間隔'); range(settings,'startAt',0,p.duration,'登場開始時刻');
+        if (!/^#[0-9a-f]{6}$/i.test(settings.borderColor || '')) errors.push('境界線の色は6桁のカラーコードで指定してください。');
+        if (splitEnd(p) > p.duration + 1e-8) errors.push(count+'つの映像が登場し終わるよう、演出の長さを延ばしてください。');
       }
     }
     if (p.mode==='highlight') {
@@ -244,7 +283,7 @@
       }
     }
     if (!Array.isArray(p.cards) || p.cards.length < 1 || p.cards.length > 12) { errors.push('カードは1〜12枚で指定してください。'); return errors; }
-    if (p.mode === 'trapezoid' && p.cards.length < 3) errors.push('台形3分割には3つの素材枠が必要です。');
+    if (p.cards.length < count) errors.push(count+'分割には'+count+'つの素材枠が必要です。');
     var ids = Object.create(null);
     p.cards.forEach(function(c, i) {
       var label = 'カード' + (i + 1) + '：';
@@ -253,17 +292,17 @@
       ids[c.id] = true;
       if (typeof c.name !== 'string' || c.name.length > 100) errors.push(label + '名前は100文字以内にしてください。');
       range(c,'x',-p.width,2*p.width,label+'X位置'); range(c,'y',-p.height,2*p.height,label+'Y位置');
-      range(c,'dropAt',0,p.mode === 'trapezoid' || p.mode === 'highlight' ? 120 : p.duration,label+'登場時刻'); range(c,'flipAt',0,p.mode === 'trapezoid' || p.mode === 'highlight' ? 120 : p.duration,label+'めくる時刻');
+      range(c,'dropAt',0,cardTiming ? p.duration : 120,label+'登場時刻'); range(c,'flipAt',0,cardTiming ? p.duration : 120,label+'めくる時刻');
       range(c,'mediaOffset',0,86400,label+'素材の開始位置');
       if (c.mediaScale !== undefined) range(c,'mediaScale',10,400,label+'素材の大きさ');
       if (c.mediaX !== undefined) range(c,'mediaX',-2*p.width,2*p.width,label+'素材のX位置');
       if (c.mediaY !== undefined) range(c,'mediaY',-2*p.height,2*p.height,label+'素材のY位置');
-      if (p.mode !== 'trapezoid' && p.mode !== 'highlight' && c.flipAt < c.dropAt) errors.push(label + 'めくる時刻は登場時刻以降にしてください。');
-      if (p.mode !== 'trapezoid' && p.mode !== 'highlight' && (c.dropAt + p.dropDuration > p.duration + 1e-8 || c.flipAt + p.flipDuration > p.duration + 1e-8)) errors.push(label + '演出の長さ内に降下・めくりが終わるようにしてください。');
+      if (cardTiming && c.flipAt < c.dropAt) errors.push(label + 'めくる時刻は登場時刻以降にしてください。');
+      if (cardTiming && (c.dropAt + p.dropDuration > p.duration + 1e-8 || c.flipAt + p.flipDuration > p.duration + 1e-8)) errors.push(label + '演出の長さ内に降下・めくりが終わるようにしてください。');
       if (typeof c.mediaPath !== 'string' || c.mediaPath.indexOf('\u0000') !== -1) errors.push(label + '素材のパスが正しくありません。');
       if (['','image','video'].indexOf(c.mediaType) < 0 || (!!c.mediaPath && !c.mediaType)) errors.push(label + '素材の種類が正しくありません。');
     });
     return errors;
   }
-  return { createProject:createProject, upgrade:upgrade, validate:validate, pose:pose, mediaRect:mediaRect, resizeCards:resizeCards, reorder:reorder, layout:layout, arrange:arrange, sequence:sequence, setMode:setMode, splitPolygons:splitPolygons, splitPose:splitPose, defaultHighlight:defaultHighlight, highlightLayer:highlightLayer, highlightPolygonValid:highlightPolygonValid, addHighlightLayer:addHighlightLayer, reorderHighlightLayer:reorderHighlightLayer, addHighlightPoint:addHighlightPoint, removeHighlightPoint:removeHighlightPoint };
+  return { createProject:createProject, upgrade:upgrade, validate:validate, pose:pose, mediaRect:mediaRect, resizeCards:resizeCards, reorder:reorder, layout:layout, arrange:arrange, sequence:sequence, setMode:setMode, splitCount:splitCount, splitSettings:splitSettings, splitEnd:splitEnd, activeCards:activeCards, splitBounds:splitBounds, splitPolygons:splitPolygons, splitPose:splitPose, defaultHighlight:defaultHighlight, highlightLayer:highlightLayer, highlightPolygonValid:highlightPolygonValid, addHighlightLayer:addHighlightLayer, reorderHighlightLayer:reorderHighlightLayer, addHighlightPoint:addHighlightPoint, removeHighlightPoint:removeHighlightPoint };
 }));

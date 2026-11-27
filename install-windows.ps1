@@ -37,7 +37,7 @@ if ($premiereProcesses.Count -gt 0) {
 }
 
 # GitHub ZIP に含まれるサンプル画像のテキストデータを復元します。
-foreach ($sampleName in @('boss', 'treasure', 'quest')) {
+foreach ($sampleName in @('boss', 'treasure', 'quest', 'portal')) {
     $encodedSample = Join-Path $sourcePath ("examples\media\" + $sampleName + '.png.base64')
     if (Test-Path -LiteralPath $encodedSample -PathType Leaf) {
         $sampleBytes = [Convert]::FromBase64String([IO.File]::ReadAllText($encodedSample))
@@ -54,7 +54,7 @@ if (-not [string]::Equals($sourcePath, $extensionPath, [StringComparison]::Ordin
     }
     $exampleTarget = Join-Path $extensionPath 'examples\media'
     New-Item -ItemType Directory -Path $exampleTarget -Force | Out-Null
-    foreach ($sampleName in @('boss.png', 'treasure.png', 'quest.png')) {
+    foreach ($sampleName in @('boss.png', 'treasure.png', 'quest.png', 'portal.png')) {
         $exampleFile = Join-Path $sourcePath ('examples\media\' + $sampleName)
         Copy-Item -LiteralPath $exampleFile -Destination $exampleTarget -Force
     }
